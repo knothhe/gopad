@@ -245,7 +245,13 @@ def release_notes(repo, prefix, target, source_head, tag):
     path = (f'compare/{quote(previous, safe="")}...{quote(tag, safe="")}' if previous
             else f'commits/{quote(tag, safe="")}')
     entries = '\n'.join(commits) if commits else '- No changes since the previous release.'
-    return f'**Full Changelog**: https://github.com/{repo}/{path}\n\n### Commits\n\n{entries}\n'
+    notes_path = f'docs/releases/{target}.md'
+    # Read the release's committed notes, never an uncommitted working copy or
+    # the default branch when rebuilding an older tag.
+    notes = ''
+    if git('ls-tree', '--name-only', source_head, '--', notes_path):
+        notes = git('show', f'{source_head}:{notes_path}').strip() + '\n\n'
+    return notes + f'**Full Changelog**: https://github.com/{repo}/{path}\n\n### Commits\n\n{entries}\n'
 
 
 def main():

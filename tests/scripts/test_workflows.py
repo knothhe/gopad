@@ -143,4 +143,19 @@ class ReleaseEngineIntegration(unittest.TestCase):
         with mock.patch.object(release,'git',side_effect=[message+'\n'+signature,signature]):
             self.assertEqual(release.tag_message('v0.1.0'),message)
 
+    def test_release_notes_use_tagged_migration_instructions(self):
+        self.call('git','tag','v0.1.0')
+        notes=self.repo/'docs/releases/0.1.1.md'
+        notes.parent.mkdir(parents=True)
+        notes.write_text('Install the ZIP manually once from v0.1.0.\n')
+        self.call('git','add','docs/releases/0.1.1.md')
+        self.call('git','commit','-m','Document ZIP update migration')
+        self.call('git','tag','v0.1.1')
+        notes.write_text('Uncommitted instructions must not be published.\n')
+        result=self.call(sys.executable,str(ROOT/'scripts/release-notes.py'),'fixture/gopad','v0.1.1')
+        self.assertIn('Install the ZIP manually once',result.stdout)
+        self.assertIn('compare/v0.1.0...v0.1.1',result.stdout)
+        self.assertIn('Document ZIP update migration',result.stdout)
+        self.assertNotIn('Uncommitted',result.stdout)
+
 if __name__=='__main__':unittest.main()

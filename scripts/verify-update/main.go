@@ -2,9 +2,6 @@
 package main
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
@@ -16,6 +13,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/knothhe/gopad/pkg/updatearchive"
 )
 
 type manifest struct {
@@ -29,8 +28,8 @@ type buildInfo struct {
 
 func check(dir, version, repository, commit, publicKey string) error {
 	target := "darwin-arm64"
-	names := []string{"gopad-" + version + "-macos-arm64.zip", "gopad-" + version + "-" + target + ".tar.gz", "update-" + target + ".json"}
-	contents, err := os.ReadFile(filepath.Join(dir, names[2]))
+	names := []string{"gopad-" + version + "-macos-arm64.zip", "update-" + target + ".json"}
+	contents, err := os.ReadFile(filepath.Join(dir, names[1]))
 	if err != nil {
 		return err
 	}
@@ -38,7 +37,7 @@ func check(dir, version, repository, commit, publicKey string) error {
 	if err := json.Unmarshal(contents, &m); err != nil {
 		return err
 	}
-	expectedURL := "https://github.com/" + repository + "/releases/download/v" + version + "/" + names[1]
+	expectedURL := "https://github.com/" + repository + "/releases/download/v" + version + "/" + names[0]
 	if m.Version != version || m.URL != expectedURL || m.Size <= 0 || m.Size > 1<<30 {
 		return fmt.Errorf("manifest target/version/size mismatch")
 	}
@@ -50,7 +49,7 @@ func check(dir, version, repository, commit, publicKey string) error {
 	if err != nil {
 		return err
 	}
-	archive, err := os.ReadFile(filepath.Join(dir, names[1]))
+	archive, err := os.ReadFile(filepath.Join(dir, names[0]))
 	if err != nil {
 		return err
 	}
@@ -58,38 +57,33 @@ func check(dir, version, repository, commit, publicKey string) error {
 	if int64(len(archive)) != m.Size || !ed25519.Verify(key, digest[:], signature) {
 		return fmt.Errorf("update archive signature or size mismatch")
 	}
-	gz, err := gzip.NewReader(bytes.NewReader(archive))
+	extracted, err := os.MkdirTemp("", "gopad-verify-zip-")
 	if err != nil {
 		return err
 	}
-	defer gz.Close()
-	tr := tar.NewReader(io.LimitReader(gz, 1<<30))
-	var found bool
-	for {
-		header, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		if header.Name != "gopad.app/Contents/Resources/build-info.json" {
-			continue
-		}
-		if found || header.Size > 16384 {
-			return fmt.Errorf("invalid build metadata in archive")
-		}
-		found = true
-		var meta buildInfo
-		if err := json.NewDecoder(io.LimitReader(tr, 16384)).Decode(&meta); err != nil {
-			return err
-		}
-		if meta.Schema != 1 || meta.Name != "gopad" || meta.BundleID != "dev.knothhe.gopad" || meta.Version != version || meta.Channel != "release" || meta.Executor != "ci" || meta.Commit != commit || meta.Target != target || meta.Source != "source-build" {
-			return fmt.Errorf("release identity does not match tagged CI build")
-		}
+	defer os.RemoveAll(extracted)
+	f, err := os.Open(filepath.Join(dir, names[0]))
+	if err != nil {
+		return err
 	}
-	if !found {
-		return fmt.Errorf("archive lacks build identity")
+	err = updatearchive.ExtractZIP(f, extracted)
+	f.Close()
+	if err != nil {
+		return err
+	}
+	metadata, err := os.ReadFile(filepath.Join(extracted, "gopad.app/Contents/Resources/build-info.json"))
+	if err != nil {
+		return fmt.Errorf("archive lacks build identity: %w", err)
+	}
+	if len(metadata) > 16384 {
+		return fmt.Errorf("invalid build metadata in archive")
+	}
+	var meta buildInfo
+	if err := json.Unmarshal(metadata, &meta); err != nil {
+		return err
+	}
+	if meta.Schema != 1 || meta.Name != "gopad" || meta.BundleID != "dev.knothhe.gopad" || meta.Version != version || meta.Channel != "release" || meta.Executor != "ci" || meta.Commit != commit || meta.Target != target || meta.Source != "source-build" {
+		return fmt.Errorf("release identity does not match tagged CI build")
 	}
 	var sums strings.Builder
 	for _, name := range names {

@@ -1,6 +1,6 @@
 # macOS 构建、安装与发布
 
-当前发布目标为 **macOS arm64**，安装包为 ZIP，MyGo 更新器使用框架生成的独立完整 `.tar.gz` 与签名 manifest。Intel 尚未完成真实运行验收，未加入发布矩阵。最低系统版本保留项目原有的 macOS 12.0；本机验证不能替代所有旧版 macOS 验收。
+当前发布目标为 **macOS arm64**，安装和自动更新复用同一个完整 ZIP，使用 MyGo 的签名 manifest。自 v0.1.1 起不再生成或上传独立 `.tar.gz` 更新包。Intel 尚未完成真实运行验收，未加入发布矩阵。最低系统版本保留项目原有的 macOS 12.0；本机验证不能替代所有旧版 macOS 验收。
 
 `VERSION` 是唯一权威版本源，首次发布版本为 `0.1.0`。`mygo.json` 只保留应用基础配置；`make build/package` 在忽略的临时目录派生 MyGo 配置，并将版本、提交、通道和执行环境注入客户端。请使用 Make 入口，不直接调用未派生版本的 `mygo build`。
 
@@ -72,14 +72,14 @@ make signing-upload SIGNING_P12="/仓库外/certificate.p12" UPDATER_KEY="/仓�
 
 保留更新私钥是持续升级的前提；首次公开版本必须带有受控公钥。今后不能仅换 Feed 来更换旧客户端的信任根。
 
-## 首次 v0.1.0 与后续升级
+## 首次发布与后续升级
 
 复用 SemVer skill 的 Python 发布引擎；首次与升级共用 `.release.json`，本地只负责检查、版本、annotated tag 与推送，唯一发布执行端是 GitHub Actions。
 
 ```sh
 make release-initial                         # 只预览，不改版本、不构建、不推送
-make release-initial RELEASE_FLAGS=--apply   # 当前 0.1.0 的首次 tag 与推送
-make release VERSION_BUMP=patch              # 预览 0.1.1
+make release-initial RELEASE_FLAGS=--apply   # 仅适用于当前版本尚未发布的仓库
+make release VERSION_BUMP=patch              # 预览下一个补丁版本
 make release VERSION_BUMP=patch RELEASE_FLAGS=--apply
 make release VERSION_BUMP=0.2.0 RELEASE_FLAGS=--apply
 ```
@@ -92,29 +92,38 @@ make release VERSION_BUMP=0.2.0 RELEASE_FLAGS=--apply
 
 `.github/workflows/release.yml` 在 `v*` tag push 触发，也允许手动提供精确已有 tag 进行恢复。它检出该 tag 的完整历史、校验 `v + VERSION` 和 HEAD、执行检查，在 `macos-15` arm64 runner 构建。发布 job 单独拥有 `contents: write`；按 tag 串行，禁止并行覆盖。
 
-构建 job 以临时 keychain 导入固定发行身份，验证证书 pin，完成后恢复原搜索列表并删除临时材料。应用使用成熟 MyGo 更新器和 MyGo CLI 产生的 Ed25519 签名更新格式，没有自行实现安装器或下载后执行脚本。
+构建 job 以临时 keychain 导入固定发行身份，验证证书 pin，完成后恢复原搜索列表并删除临时材料。应用继续使用 MyGo 更新器的下载、Ed25519 验签、暂存、退出后替换与恢复流程。ZIP 支持通过受控的 Go build overlay 扩展锁定版本的解包入口，未更改模块缓存或建立第二套安装器。打包完成后为最终 ZIP 签名，manifest 指向同一个 ZIP。
 
-每个版本必须完整具有以下 **4 个**附件：
+自 v0.1.1 起，每个版本必须完整具有以下 **3 个**附件：
 
-- `gopad-0.1.0-macos-arm64.zip`：手动安装的 app bundle。
-- `gopad-0.1.0-darwin-arm64.tar.gz`：MyGo updater 的完整更新归档。
-- `update-darwin-arm64.json`：该平台版本、固定版本 URL、大小和归档签名。
-- `SHA256SUMS`：上述三个文件的校验值。
+- `gopad-0.1.1-macos-arm64.zip`：手动安装和自动更新共用的 app bundle。
+- `update-darwin-arm64.json`：该平台版本、ZIP 固定版本 URL、大小和 Ed25519 签名。
+- `SHA256SUMS`：上述两个文件的校验值。
 
-发布 job 再验归档签名、通道、版本、源码提交和确切附件集合，创建草稿，上传全部附件并下载校验后才公开。已有同名附件必须字节一致，绝不自动 `--clobber`；已有公开 Release 仅验证，不修改正文或资产。公开后再验证匿名下载路径。Release 正文由同一引擎生成 Full Changelog 和提交列表：
+GitHub 自动提供的 Source code 下载项不属于这些发布附件。历史 v0.1.0 附件保持原状。
+
+发布 job 再验归档签名、通道、版本、源码提交和确切附件集合，创建草稿，上传全部附件并下载校验后才公开。已有同名附件必须字节一致，绝不自动 `--clobber`；已有公开 Release 仅验证，不修改正文或资产。公开后再验证匿名下载路径。Release 正文由同一引擎生成 Full Changelog 和提交列表，并读取目标提交中的 `docs/releases/<版本>.md`（如存在），确保迁移说明也进入应用内更新日志和 GitHub Release：
 
 ```sh
-make release-notes RELEASE_REPO=knothhe/gopad RELEASE_TAG=v0.1.0
+make release-notes RELEASE_REPO=knothhe/gopad RELEASE_TAG=v0.1.1
 ```
 
 签名验证、版本身份与 manifest fixture 在本地可测试；没有真实 GitHub 运行和旧版升级验收前，只能称“流程配置与本地测试完成”，不能称“CI 发布和自动更新已验证”。
+
+## ZIP 更新兼容与维护
+
+**v0.1.0 用户需要手动安装一次 v0.1.1 ZIP。** 旧版 MyGo 更新器固定使用 gzip/tar 解包，无法通过 Feed 获得 ZIP 支持。先退出旧版，再替换 app bundle，保留用户数据目录；详见 [v0.1.1 迁移说明](releases/0.1.1.md)。v0.1.1 及后续版本的自动更新使用 ZIP。
+
+ZIP 解包仅接受预期 app bundle 内的条目，验证路径、符号链接、重复项和解压体积边界。普通安装与自动更新消费相同的最终签名 ZIP，发布核验从 ZIP 中读取构建身份。
+
+MyGo 上游 v0.7.3 尚无 ZIP 解包扩展点。本项目固定其版本与被适配源码的哈希，在忽略的临时目录中复制模块，通过临时 modfile 与 overlay 适配解包调用。`scripts/go.py` 统一供 Make、CI 和 MyGo CLI 的嵌套构建使用，不修改全局模块缓存；上游源码或 overlay 参数不匹配时停止，不能降级为不支持 ZIP 的正式构建。升级 MyGo 时应重新审查这一适配、合并上游的原生 ZIP 支持，并运行签名下载、受控解包和暂存集成测试。
 
 ## 失败恢复
 
 本地失败先保留现场并定位阶段。正确的本地 annotated tag 已存在且指向当前 HEAD 时，使用精确版本续推：
 
 ```sh
-make release VERSION_BUMP=0.1.0 RELEASE_FLAGS="--resume --apply"
+make release VERSION_BUMP=0.1.1 RELEASE_FLAGS="--resume --apply"
 ```
 
 首次 tag 带有 `Release-Type: initial`。不移动 tag、不强推、不重复 bump。tag 已在远程但 CI 失败时，先确认旧 run 终止；优先重跑失败 job 或以相同精确 tag 手动触发 workflow。重复推送同一 tag 通常不会触发新构建。

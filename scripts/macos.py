@@ -216,9 +216,13 @@ def build(channel, package=False):
         inject = {'Version': meta['version'], 'Channel': channel, 'Executor': meta['executor'], 'Commit': meta['commit'],
                   'Repository': updates['github'] if updates else '', 'PublicKey': updates['publicKey'] if updates else ''}
         env = dict(os.environ)
+        # The application keeps MyGo's feed/key, but the one distributable ZIP is
+        # signed below. Do not ask the stock CLI to produce a second tar archive.
+        if updates:
+            env.pop('MYGO_UPDATER_PRIVATE_KEY', None)
         env['MYGO_LDFLAGS'] = ' '.join('-X github.com/knothhe/gopad/internal/buildinfo.' + k + '=' + v for k, v in inject.items())
         # Debug builds avoid production-only features/timestamp requirements for local self-signed Dev certificates.
-        args = ['go', 'run', 'github.com/egoist/mygo/cmd/mygo', 'build', '-platform', 'darwin/arm64']
+        args = [sys.executable, ROOT / 'scripts/go.py', 'run', 'github.com/egoist/mygo/cmd/mygo', 'build', '-platform', 'darwin/arm64']
         if channel != 'release':
             args.append('-debug')
         if not (channel == 'release' and os.environ.get('GOPAD_NOTARY_PROFILE')):
@@ -227,6 +231,7 @@ def build(channel, package=False):
         if channel == 'release':
             require(source_commit() == meta['commit'], 'Build changed the source checkout; refusing to publish those artifacts.')
         output = temporary / 'output' / TARGET
+        require(not list(output.glob('*.tar.gz')), 'Unexpected legacy tar archive; only the shared ZIP may be distributed.')
         app = output / (meta['name'] + '.app')
         verify_bundle(app, meta, cert, sign)
         if package:
@@ -236,6 +241,10 @@ def build(channel, package=False):
             with tempfile.TemporaryDirectory(prefix='gopad-extract-') as extracted:
                 run('ditto', '-x', '-k', archive, extracted)
                 verify_bundle(Path(extracted) / app.name, meta, cert, sign)
+            if updates:
+                run('go', 'run', './scripts/prepare-update', '--archive', archive,
+                    '--version', meta['version'], '--repo', updates['github'],
+                    '--public-key', updates['publicKey'], '--notes', changelog)
         destination = ROOT / 'build' / channel / TARGET
         destination.parent.mkdir(parents=True, exist_ok=True)
         require(not destination.is_symlink(), 'Build destination cannot be a symbolic link.')

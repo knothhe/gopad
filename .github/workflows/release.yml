@@ -48,7 +48,7 @@ jobs:
         run: npm ci --prefix tests/frontend
       - name: Check the tagged source
         run: make check
-      - name: Build signed bundle and complete MyGo update
+      - name: Build signed bundle and shared ZIP update
         env:
           MACOS_SIGNING_CERTIFICATE: ${{ secrets.MACOS_SIGNING_CERTIFICATE }}
           MACOS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_SIGNING_CERTIFICATE_PASSWORD }}
@@ -66,7 +66,6 @@ jobs:
           retention-days: 14
           path: |
             build/release/darwin-arm64/gopad-${{ steps.version.outputs.value }}-macos-arm64.zip
-            build/release/darwin-arm64/gopad-${{ steps.version.outputs.value }}-darwin-arm64.tar.gz
             build/release/darwin-arm64/update-darwin-arm64.json
             build/release/darwin-arm64/SHA256SUMS
 

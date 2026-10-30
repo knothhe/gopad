@@ -29,6 +29,7 @@ def exact_release(repo, tag):
 def verify_remote_assets(repo, release, expected):
     pages = json.loads(gh('api', '--paginate', '--slurp', f'repos/{repo}/releases/{release["id"]}/assets?per_page=100'))
     actual = {asset['name']: asset for page in pages for asset in page}
+    require(set(actual) == set(expected), 'Remote release asset set differs from the ZIP release contract.')
     for name, path in expected.items():
         require(name in actual, f'Remote asset missing: {name}')
         asset = actual[name]
@@ -51,7 +52,7 @@ def main():
     commit = run('git','rev-parse','HEAD',capture=True)
     directory = ROOT / 'build/release/darwin-arm64'
     run('go','run','./scripts/verify-update','--dir',directory,'--version',ver,'--repo',repo,'--commit',commit)
-    names = [f'gopad-{ver}-macos-arm64.zip',f'gopad-{ver}-darwin-arm64.tar.gz','update-darwin-arm64.json','SHA256SUMS']
+    names = [f'gopad-{ver}-macos-arm64.zip','update-darwin-arm64.json','SHA256SUMS']
     expected = {name:directory/name for name in names}
     require(all(path.is_file() and not path.is_symlink() and path.stat().st_size for path in expected.values()), 'Incomplete release artifacts.')
     release = exact_release(repo,tag)

@@ -1,4 +1,5 @@
 PYTHON ?= python3
+GO = $(PYTHON) scripts/go.py
 CHANNEL ?= dev
 IDENTITY ?=
 SIGNING_P12 ?=
@@ -13,10 +14,10 @@ RELEASE_TAG ?=
 .PHONY: run preview build package install check test test-scripts test-frontend icon clean signing-list signing-config signing-upload release release-initial release-notes
 
 run:
-	go run .
+	$(GO) run .
 
 preview:
-	go run . --preview --listen 127.0.0.1:5189
+	$(GO) run . --preview --listen 127.0.0.1:5189
 
 build:
 	$(PYTHON) scripts/macos.py build --channel "$(CHANNEL)"
@@ -38,7 +39,7 @@ signing-upload:
 	@$(PYTHON) scripts/signing_upload.py --p12 "$(SIGNING_P12)" --updater-key "$(UPDATER_KEY)" --repo "$(RELEASE_REPO)" $(SIGNING_FLAGS)
 
 test:
-	go test -race ./...
+	$(GO) test -race ./...
 
 test-frontend:
 	npm test --prefix tests/frontend
@@ -47,7 +48,7 @@ test-scripts:
 	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m unittest discover -s tests/scripts -v
 
 check: test test-frontend test-scripts
-	go vet ./...
+	$(GO) vet ./...
 
 icon:
 	./scripts/icon.sh

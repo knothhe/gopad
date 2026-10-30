@@ -9,6 +9,7 @@ A macOS app launcher with a native glass interface, powered by Go and [MyGo](htt
 ## Features
 
 - Search and launch apps from an icon grid on your current desktop, with keyboard navigation and pagination.
+- Find Chinese app names with full pinyin or initials, such as `weixin` or `wx` for 微信.
 - Organize apps with custom categories, favorites, drag-and-drop ordering, and hidden apps.
 - Manage apps and preferences in a separate, resizable settings window.
 - Adjust icon size and restore your last category when reopening the launcher.
@@ -27,6 +28,8 @@ Open the launcher from the Dock, menu bar, or global shortcut. Use the gear butt
 For app bundles and installation, `make build` / `make install` also require Python 3.9+, Pillow, and a configured signing identity. Follow the [build, signing, and release guide (中文)](docs/build-release.md) for setup.
 
 For GitHub CI signing, run `make signing-upload` to choose an existing signing identity or P12 and upload the required secrets interactively.
+
+Releases use one ZIP for installation and signed automatic updates. When upgrading from v0.1.0, [install v0.1.1 manually once](docs/releases/0.1.1.md); later updates use ZIP automatically.
 
 ## Shortcuts
 
