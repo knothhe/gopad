@@ -4,13 +4,14 @@ package webserver
 import (
 	"encoding/json"
 	"errors"
-	"github.com/knothhe/gopad/internal/i18n"
 	"io"
 	"io/fs"
 	"net/http"
 	"net/url"
 	"strings"
 
+	"github.com/knothhe/gopad/internal/appsearch"
+	"github.com/knothhe/gopad/internal/i18n"
 	"github.com/knothhe/gopad/internal/launcher"
 )
 
@@ -130,6 +131,20 @@ func result(w http.ResponseWriter, value any, err error) {
 	}
 	writeJSON(w, http.StatusOK, value)
 }
+
+func stateResult(w http.ResponseWriter, state launcher.State, err error) {
+	texts := make([]string, 0, len(state.Apps)*2+len(state.Preferences.Categories))
+	for _, app := range state.Apps {
+		texts = append(texts, app.Name, app.Path)
+	}
+	for _, category := range state.Preferences.Categories {
+		texts = append(texts, category.Name)
+	}
+	result(w, struct {
+		launcher.State
+		Pinyin map[string][]string `json:"pinyin"`
+	}{state, appsearch.Readings(texts...)}, err)
+}
 func decode(w http.ResponseWriter, r *http.Request, value any) bool {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
 	dec.DisallowUnknownFields()
@@ -148,14 +163,14 @@ func (s *server) state(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v, e := s.catalog.State()
-	result(w, v, e)
+	stateResult(w, v, e)
 }
 func (s *server) refresh(w http.ResponseWriter, r *http.Request) {
 	if !method(w, r, http.MethodPost) {
 		return
 	}
 	v, e := s.catalog.Refresh()
-	result(w, v, e)
+	stateResult(w, v, e)
 }
 func (s *server) preferences(w http.ResponseWriter, r *http.Request) {
 	// sendBeacon uses POST when the page closes; normal edits use PUT.
@@ -180,7 +195,7 @@ func (s *server) preferences(w http.ResponseWriter, r *http.Request) {
 	if e == nil && s.controls.PreferencesChanged != nil {
 		s.controls.PreferencesChanged(v.Preferences)
 	}
-	result(w, v, e)
+	stateResult(w, v, e)
 }
 func (s *server) action(w http.ResponseWriter, r *http.Request, action func(string) error) {
 	if !method(w, r, http.MethodPost) {

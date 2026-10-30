@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -124,6 +125,44 @@ func TestStaticAPIAndPreviewControls(t *testing.T) {
 	}
 	if w := request(h, "POST", "/api/hide-window", "", ""); w.Code != http.StatusNotImplemented {
 		t.Fatalf("preview hide status %d", w.Code)
+	}
+}
+
+type searchCatalog struct{ mockCatalog }
+
+func (m *searchCatalog) State() (launcher.State, error) {
+	return launcher.State{
+		Apps:        []launcher.App{{ID: "terminal", Name: "终端", Path: "/Applications/Terminal.app"}},
+		Preferences: launcher.Preferences{Categories: []launcher.Category{{ID: "work", Name: "工作"}}},
+	}, nil
+}
+func (m *searchCatalog) Refresh() (launcher.State, error) { return m.State() }
+func (m *searchCatalog) SavePreferences(p launcher.Preferences) (launcher.State, error) {
+	state, _ := m.State()
+	state.Preferences = p
+	return state, nil
+}
+
+func TestSearchDictionaryTracksApplicationsAndSavedCategoryNames(t *testing.T) {
+	h := New(&searchCatalog{}, fstest.MapFS{}, fstest.MapFS{}, Controls{})
+	for _, tc := range []struct {
+		method, path, body, character, reading string
+	}{
+		{"GET", "/api/state", "", "终", "zhong"},
+		{"POST", "/api/refresh", "", "作", "zuo"},
+		{"PUT", "/api/preferences", `{"categories":[{"id":"music","name":"音乐"}]}`, "乐", "yue"},
+	} {
+		w := request(h, tc.method, tc.path, tc.body, "")
+		var response struct {
+			launcher.State
+			Pinyin map[string][]string `json:"pinyin"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil || w.Code != http.StatusOK {
+			t.Fatalf("%s %s: %d %s (%v)", tc.method, tc.path, w.Code, w.Body, err)
+		}
+		if !slices.Contains(response.Pinyin[tc.character], tc.reading) || len(response.Apps) != 1 {
+			t.Fatalf("%s %s: incomplete search response %+v", tc.method, tc.path, response)
+		}
 	}
 }
 

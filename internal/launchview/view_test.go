@@ -62,6 +62,30 @@ func TestHiddenOrderAndSearch(t *testing.T) {
 	}
 }
 
+func TestPinyinSearchRespectsCategoriesAndHiddenApps(t *testing.T) {
+	f := fixture(3)
+	f.state.Apps[0].Name, f.state.Apps[1].Name, f.state.Apps[2].Name = "终端", "重庆音乐", "微信"
+	f.state.Preferences.Hidden = []string{"app-002"}
+	f.state.Preferences.Favorites = []string{"app-001"}
+	for _, query := range []string{"zhongduan", " ZD ", "ＺＤ", "zhong端"} {
+		if got := appsFor(f.state, query); len(got) != 1 || got[0].ID != "app-000" {
+			t.Fatalf("query %q results %v", query, got)
+		}
+	}
+	if got := appsForCategory(f.state, "cqyy", launcher.Category{ID: "favorites"}); len(got) != 1 || got[0].ID != "app-001" {
+		t.Fatalf("favorite pinyin results %v", got)
+	}
+	if got := appsForCategory(f.state, "zd", launcher.Category{ID: "favorites"}); len(got) != 0 {
+		t.Fatalf("pinyin search escaped its category: %v", got)
+	}
+	if got := appsFor(f.state, "wx"); len(got) != 0 {
+		t.Fatalf("hidden app appeared in pinyin search: %v", got)
+	}
+	if got := appsForCategory(f.state, "wx", launcher.Category{ID: "hidden"}); len(got) != 1 || got[0].ID != "app-002" {
+		t.Fatalf("hidden category pinyin results %v", got)
+	}
+}
+
 func TestNativeSearchKeyboardAndGlassControls(t *testing.T) {
 	f := fixture(8)
 	f.state.Apps[3].Name = "终端"

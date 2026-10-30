@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/knothhe/gopad/internal/appsearch"
 	"github.com/knothhe/gopad/internal/i18n"
 	"github.com/knothhe/gopad/internal/launcher"
 	"github.com/knothhe/gopad/internal/uikit"
@@ -238,7 +239,6 @@ func (v *Launchpad) loadIcons() {
 	}
 }
 
-func normalize(text string) string { return strings.ToLower(strings.Join(strings.Fields(text), "")) }
 func appsFor(state launcher.State, query string) []launcher.App {
 	return appsForCategory(state, query, launcher.Category{ID: "all"})
 }
@@ -248,12 +248,11 @@ func appsForCategory(state launcher.State, query string, category launcher.Categ
 		rank[id] = i
 	}
 	apps := make([]launcher.App, 0, len(state.Apps))
-	q := normalize(query)
 	for _, app := range state.Apps {
 		if !launcher.CategoryContains(category, app, state.Preferences) {
 			continue
 		}
-		if q != "" && !strings.Contains(normalize(app.Name+" "+app.BundleID+" "+app.Path), q) {
+		if !appsearch.Match(app.Name+" "+app.BundleID+" "+app.Path, query) {
 			continue
 		}
 		apps = append(apps, app)

@@ -66,6 +66,31 @@ const clone = value => typeof structuredClone === 'function' ? structuredClone(v
 const unique = values => [...new Set((Array.isArray(values) ? values : []).filter(value => typeof value === 'string' && value))];
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 const normalize = value => String(value || '').normalize('NFKC').toLocaleLowerCase().replace(/\s/g,'');
+let pinyinReadings = {};
+function matchesSearch(text,term) {
+  text = normalize(text); term = normalize(term);
+  if (text.includes(term)) return true;
+  if (![...text].some(character => pinyinReadings[character]?.length)) return false;
+  // Track matched query prefixes instead of expanding every pronunciation
+  // combination. The dictionary comes from the same source as native search.
+  return [false,true].some(initials => {
+    let active = new Set([0]);
+    for (const character of text) {
+      const options = [character,...(pinyinReadings[character] || []).map(value => initials ? value[0] : value)];
+      const next = new Set([0]);
+      for (const matched of active) for (const option of options) {
+        for (let start=0;start<option.length;start++) {
+          if (matched && start) break;
+          const remaining = term.slice(matched), suffix = option.slice(start);
+          if (suffix.startsWith(remaining)) return true;
+          if (remaining.startsWith(suffix)) next.add(matched+suffix.length);
+        }
+      }
+      active = next;
+    }
+    return false;
+  });
+}
 function normalizePreferences(raw = {}) {
   const seen = new Set(), categories = [];
   for (const item of raw.categories || []) {
@@ -104,6 +129,7 @@ async function request(path, method = 'GET', body) {
   let data;
   try { data = await response.json(); } catch { throw new AppError('web.requestDataError'); }
   if (!response.ok) throw new AppError(data.errorKey && window.GopadI18n.has(data.errorKey) ? data.errorKey : 'web.requestFailed',data.errorParams || {},data.detail || data.error);
+  if (data.pinyin) pinyinReadings = data.pinyin;
   return data;
 }
 function renderToast() {
@@ -227,7 +253,7 @@ function categoryApps(category,ordered = true) {
   });
 }
 function visibleApps() {
-  return categoryApps(categoryByID(currentView)).filter(app => !query || normalize(`${app.name} ${app.bundleId || ''} ${app.path.split('/').pop()}`).includes(normalize(query)));
+  return categoryApps(categoryByID(currentView)).filter(app => matchesSearch(`${app.name} ${app.bundleId || ''} ${app.path.split('/').pop()}`,query));
 }
 function setSize(value, save = false) {
   const size = Math.max(48,Math.min(112,Number(value)||80));
@@ -532,7 +558,7 @@ function renderPicker() {
   $('#picker-context').textContent = mode === 'memberships' ? appByID(pickerState.appID)?.name || '' : categoryName(categoryByID(pickerState.categoryID));
   $('#picker-new-category').hidden = mode !== 'memberships';
   const options = mode === 'memberships' ? state.preferences.categories.filter(category => !builtin(category.id)).map(category => ({id:category.id,name:category.name,hidden:!category.visible})) : orderedApps().filter(app => !state.preferences.hidden.includes(app.id) || selection.has(app.id)).map(app => ({id:app.id,name:app.name,app:true,hidden:state.preferences.hidden.includes(app.id)}));
-  const shown = options.filter(option => !term || normalize(option.name).includes(term));
+  const shown = options.filter(option => matchesSearch(option.name,term));
   const focused = document.activeElement?.dataset.option;
   $('#picker-list').innerHTML = shown.map(option => `<label class="picker-option"><input type="checkbox" data-option="${escapeHTML(option.id)}"${selection.has(option.id) ? ' checked' : ''}/><span class="picker-option-check">${icon('check')}</span>${option.app ? `<img src="/api/icon/${encodeURIComponent(option.id)}" alt="" loading="lazy"/>` : `<span class="picker-option-icon">${icon('folder')}</span>`}<span class="picker-option-name">${escapeHTML(option.name)}</span>${option.hidden ? `<span class="picker-option-hidden" title="${htmlText('web.hiddenLabel')}">${icon('eye-off')}</span>` : ''}</label>`).join('') || `<div class="picker-empty">${htmlText(term ? 'web.noResults' : mode === 'memberships' ? 'web.noCustomCategories' : 'web.noApps')}</div>`;
   localizedText($('#picker-selection-count'),'web.selectionCount',{count:selection.size});

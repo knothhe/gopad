@@ -53,7 +53,7 @@ async function fixture(t,options={}) {
       if(result?.status) return Response.json({error:result.error||'测试保存失败',errorKey:result.errorKey},{status:result.status});
       control.preferences=structuredClone(result?.preferences||candidate);
     }
-    return Response.json(['/api/state','/api/preferences','/api/refresh'].includes(url)?{apps,preferences:structuredClone(control.preferences)}:{ok:true});
+    return Response.json(['/api/state','/api/preferences','/api/refresh'].includes(url)?{apps:options.apps || apps,preferences:structuredClone(control.preferences),pinyin:options.pinyin || {}}:{ok:true});
   };
   w.eval(fs.readFileSync(path.join(root,'frontend/components/i18n.js'),'utf8'));
   w.eval(fs.readFileSync(path.join(root,'frontend/components/ui.js'),'utf8'));
@@ -86,6 +86,33 @@ test('legacy migration, stable API order, visible tab cycle and accessible rovin
   $('#sidebar-settings').click();assert.equal(key($('#settings-icon-size'),'Tab').defaultPrevented,false);
   key(w.document,'Escape');await tick();assert.equal($('#settings-dialog').open,false);assert.equal(control.closed,0);
   assert.equal($('[data-view="hidden"]'),null);
+});
+
+test('pinyin, initials and alternate readings work in the grid and both pickers',async t=>{
+  const chineseApps=[
+    {id:'terminal',name:'终端',path:'/Applications/Terminal.app',bundleId:'com.apple.Terminal'},
+    {id:'music',name:'重庆音乐',path:'/Applications/Music.app'},
+    {id:'wechat',name:'微信 WeChat',path:'/Applications/WeChat.app'},
+  ];
+  const pinyin={终:['zhong'],端:['duan'],重:['zhong','chong'],庆:['qing'],音:['yin'],乐:['le','yue'],微:['wei'],信:['xin'],工:['gong'],作:['zuo']};
+  const {$,input,ids}=await fixture(t,{apps:chineseApps,pinyin,preferences:{hidden:['wechat'],categories:[...builtins(),custom('work','工作')]}});
+  for(const query of ['zhongduan','ZD','zhong duan','ＺＤ','zhong端','hongdu','终端','APPLE.TERM']) {
+    input('#search',query);assert.deepEqual(ids(),['terminal'],query);
+  }
+  for(const query of ['chongqingyinyue','cqyy','zhongqingyinle']) {
+    input('#search',query);assert.deepEqual(ids(),['music'],query);
+  }
+  input('#search','wxwechat');assert.deepEqual(ids(),[]);
+  input('#search','');$('[data-view="work"]').click();$('#empty-state [data-empty-action="add-apps"]').click();
+  input('#picker-search','cqyy');assert.equal($('#picker-list [data-option="music"]')!==null,true);assert.equal($('#picker-list [data-option="terminal"]'),null);
+  input('#picker-search','zhong duan');assert.equal($('#picker-list [data-option="terminal"]')!==null,true);
+  input('#picker-search','wx');assert.equal($('#picker-list [data-option="wechat"]'),null);
+  $('#picker-dialog [data-dialog-close]').click();await tick();
+  $('[data-view="all"]').click();$('[aria-label="终端 的更多操作"]').click();$('#context-menu [data-action="categories"]').click();
+  for(const query of ['gongzuo','GZ','工zuo']) {
+    input('#picker-search',query);assert.equal($('#picker-list [data-option="work"]')!==null,true,query);
+  }
+  input('#picker-search','unknown');assert.equal($('#picker-list [data-option="work"]'),null);
 });
 
 test('IME composition keeps Enter, Escape and Tab inside the input method',async t=>{
