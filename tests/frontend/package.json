@@ -1,0 +1,6 @@
+{
+  "name": "gopad-management-tests",
+  "private": true,
+  "scripts": { "test": "node --test management.test.cjs" },
+  "devDependencies": { "jsdom": "27.0.0" }
+}

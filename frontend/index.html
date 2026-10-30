@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#202b3b" />
+  <meta name="color-scheme" content="dark" />
+  <title data-i18n="web.windowTitle">gopad</title>
+  <link rel="icon" type="image/svg+xml" href="/assets/gopad.svg" />
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/components/glass.css" />
+  <script defer src="/components/i18n.js"></script>
+  <script defer src="/components/ui.js"></script>
+  <script defer src="/app.js"></script>
+</head>
+<body>
+  <main class="workspace">
+    <header class="topbar">
+      <h1 data-i18n="web.apps"></h1>
+      <label class="search-box glass-surface glass-control" for="search"><span data-icon="search"></span><input id="search" type="search" data-i18n-placeholder="web.searchApps" autocomplete="off" spellcheck="false" data-i18n-aria-label="web.searchApps" /><button id="clear-search" data-i18n-aria-label="web.clearSearch" hidden><span data-icon="x"></span></button></label>
+      <button class="button done-button glass-surface glass-control" id="organize-button" data-i18n="web.done"></button>
+    </header>
+    <section class="collection-toolbar" data-i18n-aria-label="web.arrangementOptions">
+      <div class="category-navigation">
+        <nav class="segmented-control glass-surface glass-control" id="navigation" role="tablist" data-i18n-aria-label="web.categories"></nav>
+        <button class="icon-button glass-surface glass-control" id="edit-categories" data-i18n-aria-label="web.manageCategories" data-i18n-title="web.manageCategories"><span data-icon="plus"></span></button>
+      </div>
+      <label class="sort-control" data-i18n-title="web.sortApps"><span data-icon="sort"></span><select id="sort" data-i18n-aria-label="web.sortApps"><option value="custom" data-i18n="web.manualOrder"></option><option value="name" data-i18n="web.nameOrder"></option></select><span data-icon="chevron-down"></span></label>
+    </section>
+    <section class="apps-scroll" id="apps-scroll" role="tabpanel" data-i18n-aria-label="web.appList" tabindex="-1"><div class="app-grid" id="app-grid" role="list"></div><div class="empty-state" id="empty-state" hidden></div></section>
+    <footer class="workspace-footer">
+      <div class="footer-meta"><span id="collection-count" class="collection-count" aria-live="polite" data-i18n="web.loading"></span><span id="category-shortcut" class="keyboard-hint"><kbd>Tab</kbd> <span data-i18n="web.cycleCategories"></span></span></div>
+      <div class="footer-controls">
+        <div class="size-control"><span data-icon="image-small"></span><input id="icon-size" type="range" min="48" max="112" step="8" value="80" data-i18n-aria-label="web.iconSize" /><span data-icon="image-large"></span><output id="icon-size-value">80</output></div>
+        <span class="control-divider"></span>
+        <button class="icon-button glass-surface glass-quiet" id="refresh-button" data-i18n-aria-label="web.refreshApps" data-i18n-title="web.refreshApps"><span data-icon="refresh"></span></button>
+        <button class="icon-button glass-surface glass-quiet" id="sidebar-settings" data-i18n-aria-label="web.preferences" data-i18n-title="web.preferencesShortcut"><span data-icon="settings"></span></button>
+      </div>
+    </footer>
+  </main>
+  <div id="context-menu" class="context-menu glass-surface glass-floating" role="menu" hidden></div>
+  <div id="toast" class="toast glass-surface glass-floating" role="status" hidden></div>
+  <dialog id="settings-dialog" class="settings-dialog glass-surface glass-floating" aria-labelledby="settings-title">
+    <div class="dialog-heading"><h2 id="settings-title" data-i18n="web.preferences"></h2><button class="icon-button glass-surface glass-quiet" data-dialog-close id="close-settings" data-i18n-aria-label="web.closePreferences"><span data-icon="x"></span></button></div>
+    <div class="settings-content">
+      <div class="setting-row language-row"><label for="language" data-i18n="web.language.label"></label><select id="language" class="language-select glass-surface glass-control" data-i18n-aria-label="web.language.label"><option value="system" data-i18n="web.language.system"></option><option value="zh-CN" data-i18n="web.language.chinese"></option><option value="en" data-i18n="web.language.english"></option></select></div>
+      <div class="setting-row"><label for="settings-icon-size" data-i18n="web.iconSize"></label><output id="settings-size-value">80 px</output></div>
+      <div class="settings-slider"><span data-icon="image-small"></span><input id="settings-icon-size" type="range" min="48" max="112" step="8" value="80" data-i18n-aria-label="web.iconSize" /><span data-icon="image-large"></span></div>
+      <div class="settings-group">
+        <div class="setting-row"><span data-i18n="web.categories"></span><button class="button glass-surface glass-control" id="settings-categories"><span data-i18n="web.manage"></span><span data-icon="arrow-right"></span></button></div>
+        <div class="setting-row"><span><span data-i18n="web.hiddenApps"></span> <span id="hidden-summary" class="value-badge">0</span></span><button class="button glass-surface glass-control" id="manage-hidden"><span data-i18n="web.manage"></span><span data-icon="arrow-right"></span></button></div>
+        <div class="setting-row"><span data-i18n="web.appArrangement"></span><button class="button glass-surface glass-control" id="reset-order" data-i18n="web.resetDefault"></button></div>
+      </div>
+      <div class="settings-group update-section">
+        <div class="setting-row"><span data-i18n="web.update.currentVersion"></span><output id="current-version" data-i18n-meta="version">—</output></div>
+        <div class="setting-row"><span data-i18n="web.update.automaticChecks"></span><button id="automatic-updates" class="visibility-switch" role="switch" aria-checked="true" data-i18n-aria-label="web.update.automaticChecks"><span></span></button></div>
+        <div class="update-actions"><span id="update-status" class="settings-note" role="status" hidden></span><button id="check-updates" class="button glass-surface glass-control" data-i18n="web.update.check"></button></div>
+      </div>
+      <div class="setting-row shortcut-row"><span data-i18n="web.showLaunchpad"></span><kbd id="launchpad-shortcut" data-i18n-meta="shortcut"></kbd></div>
+    </div>
+    <div class="dialog-footer"><button class="text-button" id="quit-button" data-i18n="web.quit"></button><button class="button done-button glass-surface glass-control" id="settings-done" data-dialog-close data-i18n="web.done"></button></div>
+  </dialog>
+  <dialog id="categories-dialog" class="settings-dialog categories-dialog glass-surface glass-floating" aria-labelledby="categories-title">
+    <div class="dialog-heading"><h2 id="categories-title" data-i18n="web.categories"></h2><button class="icon-button glass-surface glass-quiet" data-dialog-close data-i18n-aria-label="web.closeCategories"><span data-icon="x"></span></button></div>
+    <div id="category-list" class="category-list" data-i18n-aria-label="web.categoryArrangement"></div>
+    <div class="dialog-footer"><button id="new-category" class="button glass-surface glass-control"><span data-icon="plus"></span><span data-i18n="web.newCategory"></span></button><button class="button done-button glass-surface glass-control" data-dialog-close data-i18n="web.done"></button></div>
+  </dialog>
+  <dialog id="category-name-dialog" class="settings-dialog name-dialog glass-surface glass-floating" aria-labelledby="category-name-title">
+    <form id="category-name-form">
+      <div class="dialog-heading"><h2 id="category-name-title" data-i18n="web.newCategory"></h2><button type="button" class="icon-button glass-surface glass-quiet" data-dialog-close data-i18n-aria-label="web.closeCategoryName"><span data-icon="x"></span></button></div>
+      <div class="name-content"><input id="category-name" class="glass-surface glass-control" data-i18n-aria-label="web.categoryName" autocomplete="off" data-i18n-placeholder="web.categoryName" maxlength="80" /><p id="category-name-error" class="inline-error" role="alert" hidden></p></div>
+      <div class="dialog-footer"><button type="button" class="button glass-surface glass-control" data-dialog-close data-i18n="web.cancel"></button><button type="submit" id="save-category-name" class="button done-button glass-surface glass-control" data-i18n="web.create"></button></div>
+    </form>
+  </dialog>
+  <dialog id="picker-dialog" class="settings-dialog picker-dialog glass-surface glass-floating" aria-labelledby="picker-title">
+    <div class="dialog-heading"><div><h2 id="picker-title" data-i18n="web.addToCategories"></h2><span id="picker-context" class="picker-context"></span></div><button class="icon-button glass-surface glass-quiet" data-dialog-close data-i18n-aria-label="web.closePicker"><span data-icon="x"></span></button></div>
+    <label class="search-box picker-search glass-surface glass-control"><span data-icon="search"></span><input id="picker-search" type="search" data-i18n-placeholder="web.search" data-i18n-aria-label="web.search" autocomplete="off" /></label>
+    <div id="picker-list" class="picker-list"></div>
+    <p id="picker-error" class="inline-error" role="alert" hidden></p>
+    <div class="dialog-footer"><button id="picker-new-category" class="text-button" data-i18n="web.newCategory"></button><span id="picker-selection-count" class="picker-selection-count"></span><button id="save-picker" class="button done-button glass-surface glass-control" data-i18n="web.save"></button></div>
+  </dialog>
+</body>
+</html>

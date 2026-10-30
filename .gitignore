@@ -1,0 +1,47 @@
+# Build products and local tools
+/build/
+/dist/
+/bin/
+/tmp/
+/.cache/
+/mygo.build*.json
+/mygo.local.json
+/.gopad-local.json
+*.test
+*.prof
+coverage.out
+/coverage/
+
+# Dependencies and test reports (keep lockfiles)
+node_modules/
+/.venv/
+/playwright-report/
+/test-results/
+__pycache__/
+*.py[cod]
+
+# Local settings and signing secrets (public keys stay versioned)
+.env
+.env.*
+!.env.example
+*.key
+*.p12
+*.pfx
+*.mobileprovision
+*.keychain
+*.keychain-db
+/signing/local.json
+/update-keys/
+
+# Editor, operating system and local agent files
+.DS_Store
+._*
+*.log
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+.agents/
+.claude/
+.codex/

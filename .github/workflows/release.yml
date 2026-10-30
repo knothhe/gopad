@@ -1,0 +1,98 @@
+name: Release macOS
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Exact existing version tag to resume (for example v0.10.0)
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tests/frontend/package-lock.json
+      - name: Verify exact tag, clean source and native architecture
+        id: version
+        run: |
+          test "$(uname -m)" = arm64
+          python3 scripts/macos.py verify-tag --tag "$RELEASE_TAG"
+          python3 -c 'from pathlib import Path; import os; value=Path("VERSION").read_text().strip(); open(os.environ["GITHUB_OUTPUT"],"a").write("value="+value+"\n")'
+      - name: Install locked test dependencies
+        run: npm ci --prefix tests/frontend
+      - name: Check the tagged source
+        run: make check
+      - name: Build signed bundle and complete MyGo update
+        env:
+          MACOS_SIGNING_CERTIFICATE: ${{ secrets.MACOS_SIGNING_CERTIFICATE }}
+          MACOS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_SIGNING_CERTIFICATE_PASSWORD }}
+          MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: python3 scripts/ci-sign.py
+      - name: Verify archive signature and release identity
+        run: go run ./scripts/verify-update --version "$(cat VERSION)" --repo "$GITHUB_REPOSITORY" --commit "$(git rev-parse HEAD)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gopad-${{ inputs.tag || github.ref_name }}-darwin-arm64
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            build/release/darwin-arm64/gopad-${{ steps.version.outputs.value }}-macos-arm64.zip
+            build/release/darwin-arm64/gopad-${{ steps.version.outputs.value }}-darwin-arm64.tar.gz
+            build/release/darwin-arm64/update-darwin-arm64.json
+            build/release/darwin-arm64/SHA256SUMS
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: gopad-${{ inputs.tag || github.ref_name }}-darwin-arm64
+          path: build/release/darwin-arm64
+      - name: Reverify and publish the complete draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/publish-release.py

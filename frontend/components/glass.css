@@ -1,0 +1,38 @@
+/* WebKit glass surfaces used by the management window. The native launchpad
+   uses MyGo's glass plugin; these CSS surfaces share its visual vocabulary. */
+:root {
+  --glass-blur: 24px;
+  --glass-saturation: 1.35;
+  --glass-tint: rgba(255,255,255,.055);
+  --glass-rim: rgba(255,255,255,.20);
+  --glass-highlight: rgba(255,255,255,.11);
+  --glass-shade: rgba(255,255,255,.015);
+  --glass-shadow: 0 5px 18px rgba(0,0,0,.055);
+}
+.glass-surface {
+  background-color: var(--glass-tint);
+  background-image: linear-gradient(155deg,var(--glass-highlight),var(--glass-shade) 54%);
+  border: 1px solid var(--glass-rim);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.07), inset 0 -1px 0 rgba(255,255,255,.025), var(--glass-shadow);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+}
+.glass-control { --glass-blur: 18px; --glass-highlight: rgba(255,255,255,.075); --glass-shadow: 0 2px 7px rgba(0,0,0,.025); }
+.glass-floating { --glass-tint: rgba(19,29,45,.38); --glass-blur: 28px; --glass-saturation: 1.42; --glass-highlight: rgba(255,255,255,.09); --glass-shadow: 0 18px 50px rgba(0,0,0,.20); }
+.glass-quiet { --glass-tint: rgba(255,255,255,.018); --glass-highlight: rgba(255,255,255,.025); --glass-rim: transparent; --glass-shadow: none; box-shadow: none; }
+.glass-control:hover { --glass-tint: rgba(255,255,255,.10); --glass-rim: rgba(255,255,255,.27); }
+.glass-control:active { --glass-tint: rgba(255,255,255,.075); }
+.glass-quiet:hover { --glass-rim: rgba(255,255,255,.13); }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass-surface { background-color: rgb(36,47,64); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glass-surface { background-color: rgb(35,46,63); background-image: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .glass-control:hover { background-color: rgb(55,67,86); }
+  body::before { filter: none; }
+}
+@media (prefers-contrast: more) {
+  .glass-surface { --glass-tint: rgba(15,25,39,.88); --glass-rim: rgba(255,255,255,.55); }
+  :root { --secondary: rgba(255,255,255,.80); --line: rgba(255,255,255,.32); }
+  button, input, select, label { color: #fff; }
+}

@@ -1,0 +1,21 @@
+{
+  "native.search": "搜索应用",
+  "native.clearSearch": "清空搜索",
+  "native.loading": "正在查找应用…",
+  "native.emptySearch": "没有找到相关应用",
+  "native.emptyCategory": "没有可显示的应用",
+  "native.previousPage": "上一页",
+  "native.nextPage": "下一页",
+  "native.page": "第 {number} 页",
+  "native.manage": "管理应用",
+  "native.hide": "收起启动台",
+  "native.categoryHint": "Tab 切换 · ⇧Tab 返回",
+  "native.error.load": "无法读取应用：{detail}",
+  "native.error.launch": "无法打开应用：{detail}",
+  "native.error.categorySave": "分区选择未保存：{detail}",
+  "native.error.retry": "重试",
+  "native.ui.category": "分类：{name}",
+  "native.ui.categories": "应用分类",
+  "native.ui.previousCategory": "上一分类",
+  "native.ui.nextCategory": "下一分类"
+}

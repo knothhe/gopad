@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <title>gopad</title>
+  <desc>A warm application grid, with an orange launch key, on a charcoal macOS app icon.</desc>
+  <defs>
+    <linearGradient id="body" x1="180" y1="80" x2="850" y2="960" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#383B3A"/>
+      <stop offset="1" stop-color="#1B1E1D"/>
+    </linearGradient>
+    <linearGradient id="key" x1="280" y1="250" x2="700" y2="780" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFDF7"/>
+      <stop offset="1" stop-color="#E6E3D9"/>
+    </linearGradient>
+    <linearGradient id="orange" x1="626" y1="224" x2="786" y2="398" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFAD6C"/>
+      <stop offset="1" stop-color="#F27545"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="1024" height="1024" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="14" stdDeviation="14" flood-color="#101312" flood-opacity=".24"/>
+    </filter>
+    <filter id="keyShadow" x="140" y="160" width="760" height="740" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="7" stdDeviation="6" flood-color="#0D100F" flood-opacity=".24"/>
+    </filter>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="204" fill="url(#body)" filter="url(#shadow)"/>
+  <rect x="65" y="65" width="894" height="894" rx="203" stroke="white" stroke-opacity=".12" stroke-width="2"/>
+  <g fill="url(#key)" filter="url(#keyShadow)">
+    <rect x="250" y="250" width="150" height="150" rx="39"/>
+    <rect x="437" y="250" width="150" height="150" rx="39"/>
+    <rect x="250" y="437" width="150" height="150" rx="39"/>
+    <rect x="437" y="437" width="150" height="150" rx="39"/>
+    <rect x="624" y="437" width="150" height="150" rx="39"/>
+    <rect x="250" y="624" width="150" height="150" rx="39"/>
+    <rect x="437" y="624" width="150" height="150" rx="39"/>
+    <rect x="624" y="624" width="150" height="150" rx="39"/>
+  </g>
+  <g filter="url(#keyShadow)">
+    <rect x="624" y="226" width="174" height="174" rx="45" fill="url(#orange)"/>
+    <path d="M678 346L744 280M685 280H744V339" stroke="#FFFFFF" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

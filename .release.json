@@ -1,0 +1,12 @@
+{
+  "version_file": "VERSION",
+  "branch": "main",
+  "remote": "origin",
+  "tag_prefix": "v",
+  "checks": [["make", "check"]],
+  "check_phase": "before-bump",
+  "release_executor": "github-actions",
+  "github_release": false,
+  "build": [],
+  "assets": []
+}

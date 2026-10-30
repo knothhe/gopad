@@ -1,0 +1,11 @@
+{
+  "name": "gopad",
+  "slug": "gopad",
+  "identifier": "dev.knothhe.gopad",
+  "icon": "assets/gopad.png",
+  "out": "build/mygo",
+  "macos": {
+    "icon": "assets/gopad.icns",
+    "signingIdentity": "-"
+  }
+}

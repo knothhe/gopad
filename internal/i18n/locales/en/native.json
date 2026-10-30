@@ -1,0 +1,21 @@
+{
+  "native.search": "Search apps",
+  "native.clearSearch": "Clear search",
+  "native.loading": "Finding apps…",
+  "native.emptySearch": "No matching apps",
+  "native.emptyCategory": "No apps to display",
+  "native.previousPage": "Previous page",
+  "native.nextPage": "Next page",
+  "native.page": "Page {number}",
+  "native.manage": "Manage apps",
+  "native.hide": "Hide launchpad",
+  "native.categoryHint": "Tab next · ⇧Tab previous",
+  "native.error.load": "Couldn't load apps: {detail}",
+  "native.error.launch": "Couldn't open app: {detail}",
+  "native.error.categorySave": "Category selection wasn't saved: {detail}",
+  "native.error.retry": "Retry",
+  "native.ui.category": "Category: {name}",
+  "native.ui.categories": "App categories",
+  "native.ui.previousCategory": "Previous category",
+  "native.ui.nextCategory": "Next category"
+}
