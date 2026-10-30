@@ -2,7 +2,7 @@
 
 当前发布目标为 **macOS arm64**，安装包为 ZIP，MyGo 更新器使用框架生成的独立完整 `.tar.gz` 与签名 manifest。Intel 尚未完成真实运行验收，未加入发布矩阵。最低系统版本保留项目原有的 macOS 12.0；本机验证不能替代所有旧版 macOS 验收。
 
-`VERSION` 是唯一权威版本源，首次发布版本为 `0.10.0`。`mygo.json` 只保留应用基础配置；`make build/package` 在忽略的临时目录派生 MyGo 配置，并将版本、提交、通道和执行环境注入客户端。请使用 Make 入口，不直接调用未派生版本的 `mygo build`。
+`VERSION` 是唯一权威版本源，首次发布版本为 `0.1.0`。`mygo.json` 只保留应用基础配置；`make build/package` 在忽略的临时目录派生 MyGo 配置，并将版本、提交、通道和执行环境注入客户端。请使用 Make 入口，不直接调用未派生版本的 `mygo build`。
 
 ## 依赖与日常命令
 
@@ -72,16 +72,16 @@ make signing-upload SIGNING_P12="/仓库外/certificate.p12" UPDATER_KEY="/仓�
 
 保留更新私钥是持续升级的前提；首次公开版本必须带有受控公钥。今后不能仅换 Feed 来更换旧客户端的信任根。
 
-## 首次 v0.10.0 与后续升级
+## 首次 v0.1.0 与后续升级
 
 复用 SemVer skill 的 Python 发布引擎；首次与升级共用 `.release.json`，本地只负责检查、版本、annotated tag 与推送，唯一发布执行端是 GitHub Actions。
 
 ```sh
 make release-initial                         # 只预览，不改版本、不构建、不推送
-make release-initial RELEASE_FLAGS=--apply   # 当前 0.10.0 的首次 tag 与推送
-make release VERSION_BUMP=patch              # 预览 0.10.1
+make release-initial RELEASE_FLAGS=--apply   # 当前 0.1.0 的首次 tag 与推送
+make release VERSION_BUMP=patch              # 预览 0.1.1
 make release VERSION_BUMP=patch RELEASE_FLAGS=--apply
-make release VERSION_BUMP=0.11.0 RELEASE_FLAGS=--apply
+make release VERSION_BUMP=0.2.0 RELEASE_FLAGS=--apply
 ```
 
 首次入口不改写 `VERSION`、不创建版本提交；升级入口要求新版本更高，并创建版本提交。两者检查本地及远程 tag，GitHub 首次流程也检查可见 Release/草稿；网络或权限失败不会被当成“未发布”。预览中的 `release_executor` 应为 `github-actions`，本地 `build/assets` 应为空。需要 `gh` 已登录来做只读预检。
@@ -96,15 +96,15 @@ make release VERSION_BUMP=0.11.0 RELEASE_FLAGS=--apply
 
 每个版本必须完整具有以下 **4 个**附件：
 
-- `gopad-0.10.0-macos-arm64.zip`：手动安装的 app bundle。
-- `gopad-0.10.0-darwin-arm64.tar.gz`：MyGo updater 的完整更新归档。
+- `gopad-0.1.0-macos-arm64.zip`：手动安装的 app bundle。
+- `gopad-0.1.0-darwin-arm64.tar.gz`：MyGo updater 的完整更新归档。
 - `update-darwin-arm64.json`：该平台版本、固定版本 URL、大小和归档签名。
 - `SHA256SUMS`：上述三个文件的校验值。
 
 发布 job 再验归档签名、通道、版本、源码提交和确切附件集合，创建草稿，上传全部附件并下载校验后才公开。已有同名附件必须字节一致，绝不自动 `--clobber`；已有公开 Release 仅验证，不修改正文或资产。公开后再验证匿名下载路径。Release 正文由同一引擎生成 Full Changelog 和提交列表：
 
 ```sh
-make release-notes RELEASE_REPO=knothhe/gopad RELEASE_TAG=v0.10.0
+make release-notes RELEASE_REPO=knothhe/gopad RELEASE_TAG=v0.1.0
 ```
 
 签名验证、版本身份与 manifest fixture 在本地可测试；没有真实 GitHub 运行和旧版升级验收前，只能称“流程配置与本地测试完成”，不能称“CI 发布和自动更新已验证”。
@@ -114,7 +114,7 @@ make release-notes RELEASE_REPO=knothhe/gopad RELEASE_TAG=v0.10.0
 本地失败先保留现场并定位阶段。正确的本地 annotated tag 已存在且指向当前 HEAD 时，使用精确版本续推：
 
 ```sh
-make release VERSION_BUMP=0.10.0 RELEASE_FLAGS="--resume --apply"
+make release VERSION_BUMP=0.1.0 RELEASE_FLAGS="--resume --apply"
 ```
 
 首次 tag 带有 `Release-Type: initial`。不移动 tag、不强推、不重复 bump。tag 已在远程但 CI 失败时，先确认旧 run 终止；优先重跑失败 job 或以相同精确 tag 手动触发 workflow。重复推送同一 tag 通常不会触发新构建。
