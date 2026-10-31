@@ -25,13 +25,14 @@ type App struct {
 }
 
 type Preferences struct {
-	Hidden       []string   `json:"hidden"`
-	Order        []string   `json:"order"`
-	IconSize     int        `json:"iconSize"`
-	Favorites    []string   `json:"favorites"`
-	Categories   []Category `json:"categories"`
-	Language     string     `json:"language"`
-	LastCategory string     `json:"lastCategory"`
+	Hidden          []string   `json:"hidden"`
+	Order           []string   `json:"order"`
+	IconSize        int        `json:"iconSize"`
+	Favorites       []string   `json:"favorites"`
+	Categories      []Category `json:"categories"`
+	Language        string     `json:"language"`
+	ShowMenuBarIcon bool       `json:"showMenuBarIcon"`
+	LastCategory    string     `json:"lastCategory"`
 }
 
 type State struct {

@@ -16,6 +16,7 @@
   "web.iconSize": "Icon size",
   "web.refreshApps": "Refresh apps",
   "web.preferences": "Preferences",
+  "web.showMenuBarIcon": "Show icon in menu bar",
   "web.preferencesShortcut": "Preferences · ⌘,",
   "web.closePreferences": "Close preferences",
   "web.hiddenApps": "Hidden apps",

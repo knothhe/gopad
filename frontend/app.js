@@ -61,7 +61,7 @@ const isNative = !!window.mygo;
 const BUILTINS = {all:'web.category.all',favorites:'web.category.favorites',system:'web.category.system',hidden:'web.category.hidden'};
 const builtin = id => Object.prototype.hasOwnProperty.call(BUILTINS,id);
 const defaultCategories = () => Object.keys(BUILTINS).map(id => ({id,name:id,appIds:[],visible:id !== 'hidden'}));
-const defaults = () => ({hidden:[],order:[],favorites:[],iconSize:80,language:'system',lastCategory:'all',categories:defaultCategories()});
+const defaults = () => ({hidden:[],order:[],favorites:[],iconSize:80,language:'system',showMenuBarIcon:false,lastCategory:'all',categories:defaultCategories()});
 const clone = value => typeof structuredClone === 'function' ? structuredClone(value) : JSON.parse(JSON.stringify(value));
 const unique = values => [...new Set((Array.isArray(values) ? values : []).filter(value => typeof value === 'string' && value))];
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
@@ -105,7 +105,7 @@ function normalizePreferences(raw = {}) {
   }
   for (const item of defaultCategories()) if (!seen.has(item.id)) categories.push(item);
   if (!categories.some(item => item.visible)) categories.find(item => item.id === 'all').visible = true;
-  return {...raw,language:typeof raw.language === 'string' && raw.language ? raw.language : 'system',lastCategory:typeof raw.lastCategory === 'string' ? raw.lastCategory : 'all',hidden:unique(raw.hidden),order:unique(raw.order),favorites:unique(raw.favorites),iconSize:Math.max(48,Math.min(112,Number(raw.iconSize)||80)),categories};
+  return {...raw,language:typeof raw.language === 'string' && raw.language ? raw.language : 'system',showMenuBarIcon:raw.showMenuBarIcon === true,lastCategory:typeof raw.lastCategory === 'string' ? raw.lastCategory : 'all',hidden:unique(raw.hidden),order:unique(raw.order),favorites:unique(raw.favorites),iconSize:Math.max(48,Math.min(112,Number(raw.iconSize)||80)),categories};
 }
 let state = {apps:[],preferences:defaults()};
 let lastConfirmedPreferences = defaults();
@@ -294,6 +294,7 @@ function render() {
   tabs.render(categories.map(category => ({...category,name:categoryName(category)})),currentView,item => categoryApps(item,false).length);
   if (!showTabs && focusedNavigation) search.focus({preventScroll:true});
   renderLanguageSelector();
+  $('#show-menu-bar-icon').setAttribute('aria-checked',String(state.preferences.showMenuBarIcon));
   const panel = $('#apps-scroll');
   panel.removeAttribute('data-i18n-aria-label');
   if (showTabs) {
@@ -598,6 +599,10 @@ function renderLanguageSelector() {
 $('#language').onchange = event => {
   const language = event.target.value;
   updatePreferences(preferences => { preferences.language = language; });
+};
+$('#show-menu-bar-icon').onclick = () => {
+  const show = !state.preferences.showMenuBarIcon;
+  updatePreferences(preferences => { preferences.showMenuBarIcon = show; });
 };
 async function refreshTranslations({report = false} = {}) {
   try { await window.GopadI18n.load(); }

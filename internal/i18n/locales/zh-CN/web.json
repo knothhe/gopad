@@ -16,6 +16,7 @@
   "web.iconSize": "图标大小",
   "web.refreshApps": "刷新应用列表",
   "web.preferences": "偏好设置",
+  "web.showMenuBarIcon": "在菜单栏显示图标",
   "web.preferencesShortcut": "偏好设置 · ⌘,",
   "web.closePreferences": "关闭设置",
   "web.hiddenApps": "隐藏的应用",

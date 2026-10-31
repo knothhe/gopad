@@ -229,12 +229,40 @@ func runDesktop(service *launcher.Service, frontend, assets fs.FS, windowed bool
 			show()
 		}
 	}
+	syncTray := func() {
+		if quitting {
+			return
+		}
+		if !service.Preferences().ShowMenuBarIcon {
+			if tray != nil {
+				tray.Destroy()
+				tray = nil
+			}
+			return
+		}
+		if tray != nil {
+			return
+		}
+		created, err := mygo.NewTray(mygo.TrayOptions{ID: buildinfo.BundleID() + ".launcher", Icon: trayIcon(), IconIsTemplate: true, ToolTip: i18n.T(locale(), "app.tray", "name", buildinfo.Name())})
+		if err != nil {
+			log.Printf("菜单栏图标: %v", err)
+			return
+		}
+		tray = created
+		created.OnClick(toggle)
+		created.OnRightClick(func() { created.SetMenu(trayMenu); defer created.SetMenu(nil); created.PopUpMenu() })
+	}
 	controls := webserver.Controls{
-		Hide:               hide,
-		CopyPath:           func(path string) error { mygo.Clipboard.WriteText(path); return nil },
-		Quit:               func() { go func() { time.Sleep(100 * time.Millisecond); app.Quit() }() },
-		SystemLocale:       func() string { return systemLocale.Load().(string) },
-		PreferencesChanged: func(launcher.Preferences) { applyLanguage(service.Preferences().Language) },
+		Hide:         hide,
+		CopyPath:     func(path string) error { mygo.Clipboard.WriteText(path); return nil },
+		Quit:         func() { go func() { time.Sleep(100 * time.Millisecond); app.Quit() }() },
+		SystemLocale: func() string { return systemLocale.Load().(string) },
+		PreferencesChanged: func(launcher.Preferences) {
+			applyLanguage(service.Preferences().Language)
+			if win != nil {
+				win.Update(syncTray)
+			}
+		},
 		Version:            buildinfo.Version,
 		UpdateStatus:       updateController.State,
 		SetAutomaticChecks: updateController.SetAutomaticChecks,
@@ -341,15 +369,13 @@ func runDesktop(service *launcher.Service, frontend, assets fs.FS, windowed bool
 		if len(icon) > 0 {
 			_ = app.Dock.SetIcon(icon)
 		}
-		var err error
-		tray, err = mygo.NewTray(mygo.TrayOptions{ID: buildinfo.BundleID() + ".launcher", Icon: trayIcon(), IconIsTemplate: true, ToolTip: i18n.T(locale(), "app.tray", "name", buildinfo.Name())})
-		if err != nil {
-			log.Printf("菜单栏图标: %v", err)
-		} else {
-			tray.OnClick(toggle)
-			tray.OnRightClick(func() { tray.SetMenu(trayMenu); defer tray.SetMenu(nil); tray.PopUpMenu() })
-			app.OnWillQuit(func(*mygo.QuitEvent) { tray.Destroy() })
-		}
+		syncTray()
+		app.OnWillQuit(func(*mygo.QuitEvent) {
+			if tray != nil {
+				tray.Destroy()
+				tray = nil
+			}
+		})
 		shortcut := "Ctrl+Alt+Space"
 		if buildinfo.Channel != "release" {
 			shortcut = "Ctrl+Alt+Shift+Space"
