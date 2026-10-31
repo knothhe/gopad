@@ -3,11 +3,9 @@
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
 import sys
-import tempfile
 import urllib.request
 
 sys.dont_write_bytecode = True
@@ -57,15 +55,17 @@ def main():
     require(all(path.is_file() and not path.is_symlink() and path.stat().st_size for path in expected.values()), 'Incomplete release artifacts.')
     release = exact_release(repo,tag)
     if release is None:
-        with tempfile.TemporaryDirectory(prefix='gopad-notes-') as temp:
-            notes = Path(temp)/'notes.md'
-            notes.write_text(run(sys.executable,ROOT/'scripts/release-notes.py',repo,tag,capture=True))
-            args = ['release','create',tag,'--repo',repo,'--draft','--verify-tag','--title',tag,'--notes-file',str(notes)]
-            if '-' in ver.split('+')[0]:
-                args.append('--prerelease')
-            gh(*args)
-        release = exact_release(repo,tag)
-        require(release is not None,'Release creation had an unknown outcome; inspect GitHub before retrying.')
+        # Keep gh release create --verify-tag's remote-tag precondition; the
+        # release API would otherwise create a missing tag automatically.
+        gh('api',f'repos/{repo}/git/ref/tags/{tag}')
+        notes = run(sys.executable,ROOT/'scripts/release-notes.py',repo,tag,capture=True)
+        # Use the mutation response: the release list can still reflect the state
+        # before creation or publication because GitHub allows it to be cached.
+        release = json.loads(gh('api','--method','POST',f'repos/{repo}/releases',
+                               '-f',f'tag_name={tag}','-f',f'target_commitish={commit}',
+                               '-f',f'name={tag}','-f',f'body={notes}','-F','draft=true',
+                               '-F',f'prerelease={str("-" in ver.split("+")[0]).lower()}'))
+        require(release['tag_name'] == tag and release['draft'], 'Release creation returned an unexpected release.')
     assets = {asset['name']:asset for asset in release['assets']}
     # Public releases are immutable here; avoid exposing a partially repaired feed.
     if not release['draft']:
@@ -76,9 +76,10 @@ def main():
         if name not in assets:
             gh('release','upload',tag,str(path),'--repo',repo)
     verify_remote_assets(repo,release,expected)
-    gh('release','edit',tag,'--repo',repo,'--draft=false')
-    public = exact_release(repo,tag)
-    require(public is not None and not public['draft'],'Release remains unpublished.')
+    public = json.loads(gh('api','--method','PATCH',f'repos/{repo}/releases/{release["id"]}',
+                          '-F','draft=false'))
+    require(public['id'] == release['id'] and public['tag_name'] == tag and not public['draft'],
+            'Release remains unpublished or returned an unexpected release.')
     verify_remote_assets(repo,public,expected)
     for name,path in expected.items():
         url = f'https://github.com/{repo}/releases/download/{tag}/{name}'
