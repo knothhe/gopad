@@ -50,6 +50,8 @@ h1 { font-size: 19px; line-height: 1; font-weight: 600; letter-spacing: -.35px; 
 .done-button { min-width: 62px; --glass-tint: rgba(255,255,255,.10); --glass-rim: rgba(255,255,255,.23); font-weight: 500; }
 .done-button:hover { --glass-tint: rgba(255,255,255,.16); }
 .collection-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 var(--grid-inline-end-inset) 18px var(--grid-inline-inset); border-bottom: 1px solid var(--line); }
+.collection-actions { display: flex; align-items: center; gap: 16px; flex: 0 0 auto; }
+#edit-category-apps { white-space: nowrap; }
 .segmented-control { display: inline-flex; align-items: center; gap: 3px; padding: 3px;  border-radius: 11px;  }
 .nav-item { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-width: 68px; height: 29px; padding: 0 12px; border: 1px solid transparent; border-radius: 8px; font-size: 12px; color: rgba(255,255,255,.57); transition: color 200ms var(--ease), background 200ms var(--ease), border-color 200ms var(--ease); }
 .nav-item:hover { color: rgba(255,255,255,.85); background: rgba(255,255,255,.045); }
@@ -171,6 +173,7 @@ body.leaving .workspace { animation: window-out 180ms var(--ease) both; pointer-
   .nav-item { min-width: 48px; padding: 0 7px; gap: 5px; }
   .nav-count { display: none; }
   .collection-toolbar { gap: 10px; }
+  .collection-actions { gap: 10px; }
   .size-control { gap: 8px; }
   input[type="range"] { width: 70px; }
 }

@@ -183,6 +183,49 @@ test('multi-select membership, app picker, drag to a tab and removing one member
   assert.equal(control.actions.some(a=>a.url==='/api/launch'||a.url==='/api/reveal'),false);
 });
 
+test('persistent section editor preselects members and saves bulk additions and removals only in the current section',async t=>{
+  const categories=[...builtins(),custom('work','Work',['alpha','delta']),custom('other','Other',['alpha','gamma'])];
+  const {$,control,checked,ids}=await fixture(t,{preferences:{language:'en',categories,favorites:['alpha']}});
+  $('[data-view="work"]').click();assert.deepEqual(ids(),['alpha']);
+  assert.equal($('#edit-category-apps').hidden,false);assert.equal($('#edit-category-apps').textContent.trim(),'Edit apps');
+  $('#edit-category-apps').click();assert.equal($('#picker-dialog').open,true);assert.equal($('#picker-title').textContent,'Edit apps');assert.equal($('#picker-context').textContent,'Work');
+  assert.equal($('#picker-list [data-option="alpha"]').checked,true);assert.equal($('#picker-list [data-option="delta"]').checked,true);assert.equal($('#picker-list [data-option="gamma"]').checked,false);
+  checked('alpha',false);checked('gamma',true);checked('beta',true);$('#save-picker').click();await tick();
+  assert.equal($('#picker-dialog').open,false);assert.deepEqual(control.preferences.categories.find(c=>c.id==='work').appIds,['delta','gamma','beta']);
+  assert.deepEqual(control.preferences.categories.find(c=>c.id==='other').appIds,['alpha','gamma']);assert.deepEqual(control.preferences.favorites,['alpha']);assert.deepEqual(control.preferences.hidden,['delta']);
+  assert.deepEqual(ids(),['gamma','beta']);assert.equal($('#edit-category-apps').hidden,false);
+});
+
+test('section editor stays available for empty and filtered sections, and closing discards its draft',async t=>{
+  const {$,control,input,checked,ids}=await fixture(t,{preferences:{categories:[...builtins(),custom('work','工作',['alpha']),custom('empty','空分区')]}});
+  $('[data-view="work"]').click();input('#search','does not exist');assert.deepEqual(ids(),[]);assert.equal($('#edit-category-apps').hidden,false);
+  $('#edit-category-apps').click();assert.equal($('#picker-title').textContent,'编辑应用');assert.equal($('#picker-list [data-option="alpha"]').checked,true);assert.ok($('#picker-list [data-option="gamma"]'));
+  const saved=structuredClone(control.preferences), saveCount=control.saves.length;
+  checked('alpha',false);checked('gamma',true);$('#picker-dialog [data-dialog-close]').click();await tick();
+  assert.equal($('#picker-dialog').open,false);assert.equal(control.saves.length,saveCount);assert.deepEqual(control.preferences,saved);
+  $('#edit-category-apps').click();assert.equal($('#picker-list [data-option="alpha"]').checked,true);assert.equal($('#picker-list [data-option="gamma"]').checked,false);
+  $('#picker-dialog [data-dialog-close]').click();await tick();
+  $('[data-view="empty"]').click();assert.deepEqual(ids(),[]);assert.equal($('#edit-category-apps').hidden,false);$('#edit-category-apps').click();
+  assert.equal($('#picker-dialog').open,true);assert.equal($('#picker-context').textContent,'空分区');assert.equal($('#picker-list input:checked'),null);assert.ok($('#picker-list [data-option="alpha"]'));
+});
+
+test('built-in sections never expose the custom section editor',async t=>{
+  const {$}=await fixture(t,{preferences:{categories:[...builtins(),custom('work','工作',['alpha'])]}});
+  for(const id of ['all','favorites','system']) {
+    $(`[data-view="${id}"]`).click();assert.equal($('#edit-category-apps').hidden,true,id);
+  }
+  $('[data-view="work"]').click();assert.equal($('#edit-category-apps').hidden,false);
+  $('#sidebar-settings').click();$('#manage-hidden').click();await tick();assert.equal($('#edit-category-apps').hidden,true);
+});
+
+test('keyboard activation of the section editor dismisses the app menu and Escape closes the picker',async t=>{
+  const {w,$,key}=await fixture(t,{preferences:{categories:[...builtins(),custom('work','工作',['gamma'])]}});
+  $('[data-view="work"]').click();$('[aria-label="Gamma 的更多操作"]').click();assert.equal($('#context-menu').hidden,false);
+  $('#edit-category-apps').focus();$('#edit-category-apps').click();
+  assert.equal($('#context-menu').hidden,true);assert.equal($('#picker-dialog').open,true);
+  key(w.document,'Escape');await tick();assert.equal($('#picker-dialog').open,false);assert.equal($('#context-menu').hidden,true);
+});
+
 test('picker keeps its draft and visible error after failure; retry saves it',async t=>{
   const {w,$,control,checked}=await fixture(t,{preferences:{categories:[...builtins(),custom('work','工作')]}});
   $('[aria-label="Gamma 的更多操作"]').click();$('#context-menu [data-action="categories"]').click();checked('work',true);
@@ -440,6 +483,8 @@ test('a single custom section and temporary hidden management never label a pane
   const categories=[...builtins().map(category=>({...category,visible:false})),custom('work','工作台',['gamma'])];
   const {w,$,control,key,ids}=await fixture(t,{preferences:{categories,lastCategory:'work'}});
   assert.deepEqual(ids(),['gamma']);assert.equal($('#navigation').hidden,true);assert.equal($('#apps-scroll').getAttribute('aria-label'),'工作台');assert.equal($('#apps-scroll').hasAttribute('aria-labelledby'),false);
+  assert.equal($('#edit-category-apps').hidden,false);$('#edit-category-apps').click();assert.equal($('#picker-dialog').open,true);assert.equal($('#picker-list [data-option="gamma"]').checked,true);
+  $('#picker-dialog [data-dialog-close]').click();await tick();
   $('#sidebar-settings').click();$('#manage-hidden').click();await tick();
   assert.deepEqual(ids(),['delta']);assert.equal($('#navigation').hidden,true);assert.equal($('#category-shortcut').hidden,true);assert.equal($('#apps-scroll').getAttribute('aria-label'),'隐藏');assert.equal($('#apps-scroll').hasAttribute('aria-labelledby'),false);
   $('#edit-categories').click();assert.equal($('#categories-dialog').open,true);assert.ok($('[data-category-row="work"]'));

@@ -25,7 +25,10 @@
         <nav class="segmented-control glass-surface glass-control" id="navigation" role="tablist" data-i18n-aria-label="web.categories"></nav>
         <button class="icon-button glass-surface glass-control" id="edit-categories" data-i18n-aria-label="web.manageCategories" data-i18n-title="web.manageCategories"><span data-icon="plus"></span></button>
       </div>
-      <label class="sort-control" data-i18n-title="web.sortApps"><span data-icon="sort"></span><select id="sort" data-i18n-aria-label="web.sortApps"><option value="custom" data-i18n="web.manualOrder"></option><option value="name" data-i18n="web.nameOrder"></option></select><span data-icon="chevron-down"></span></label>
+      <div class="collection-actions">
+        <button class="button glass-surface glass-control" id="edit-category-apps" hidden><span data-icon="pencil"></span><span data-i18n="web.editApps"></span></button>
+        <label class="sort-control" data-i18n-title="web.sortApps"><span data-icon="sort"></span><select id="sort" data-i18n-aria-label="web.sortApps"><option value="custom" data-i18n="web.manualOrder"></option><option value="name" data-i18n="web.nameOrder"></option></select><span data-icon="chevron-down"></span></label>
+      </div>
     </section>
     <section class="apps-scroll" id="apps-scroll" role="tabpanel" data-i18n-aria-label="web.appList" tabindex="-1"><div class="app-grid" id="app-grid" role="list"></div><div class="empty-state" id="empty-state" hidden></div></section>
     <footer class="workspace-footer">

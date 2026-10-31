@@ -305,6 +305,9 @@ function render() {
     panel.setAttribute('aria-label',categoryName(categoryByID(currentView)));
   }
   $('#category-shortcut').hidden = !showTabs;
+  const editApps = $('#edit-category-apps');
+  editApps.hidden = builtin(currentView);
+  editApps.title = t('web.category.editApps',{name:categoryName(categoryByID(currentView))});
   const hiddenCount = state.apps.filter(app => state.preferences.hidden.includes(app.id)).length;
   $('#hidden-summary').textContent = hiddenCount;
   const apps = visibleApps();
@@ -472,6 +475,7 @@ $('#quit-button').onclick = async () => { if (!isNative) return toast('web.toast
 
 function showCategories() { closeMenu(); renderCategoryList(); categoriesDialog.show(); }
 $('#edit-categories').onclick = showCategories;
+$('#edit-category-apps').onclick = () => { closeMenu(); openAppPicker(currentView); };
 function categoryActionButton(action,label,content,disabled = false) { return `<button class="icon-button glass-surface glass-quiet" data-category-action="${action}" aria-label="${escapeHTML(label)}" title="${escapeHTML(label)}"${disabled ? ' disabled' : ''}>${icon(content)}</button>`; }
 function renderCategoryList() {
   const focus = document.activeElement?.closest('[data-category-row]');
@@ -555,7 +559,7 @@ function openPicker() { pickerSession++; $('#save-picker').disabled = false; $('
 function renderPicker() {
   if (!pickerState) return;
   const mode = pickerState.mode, selection = pickerState.selection, term = normalize($('#picker-search').value);
-  localizedText($('#picker-title'),mode === 'memberships' ? 'web.addToCategories' : 'web.addApps');
+  localizedText($('#picker-title'),mode === 'memberships' ? 'web.addToCategories' : 'web.editApps');
   $('#picker-context').textContent = mode === 'memberships' ? appByID(pickerState.appID)?.name || '' : categoryName(categoryByID(pickerState.categoryID));
   $('#picker-new-category').hidden = mode !== 'memberships';
   const options = mode === 'memberships' ? state.preferences.categories.filter(category => !builtin(category.id)).map(category => ({id:category.id,name:category.name,hidden:!category.visible})) : orderedApps().filter(app => !state.preferences.hidden.includes(app.id) || selection.has(app.id)).map(app => ({id:app.id,name:app.name,app:true,hidden:state.preferences.hidden.includes(app.id)}));
