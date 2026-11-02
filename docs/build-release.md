@@ -19,7 +19,7 @@ make install
 
 - `make build`：默认 `dev` 通道，生成 `build/dev/darwin-arm64/gopad Dev.app`，不安装。
 - `make package`：在同一目录生成 Dev ZIP，不发布。
-- `make install`：先从源码构建并验签，再安装到 `~/Applications/gopad Dev.app`。`INSTALL_DIR="/绝对路径/gopad Dev.app"` 可用于隔离验收。Dev 安装不会替换正式应用、清配置或自动启动；目标正在运行时停止并要求先退出该副本。
+- `make install`：先从源码构建并验签，再安装到 `~/Applications/gopad Dev.app`。`INSTALL_DIR="/绝对路径/gopad Dev.app"` 可用于隔离验收。Dev 安装不会替换正式应用或清配置。目标正在运行时，会在新包复制并验签后自动退出该副本，安装完成后重新启动；原本未运行时保持关闭。退出超过 10 秒则中止安装，保留原应用。
 - `make build CHANNEL=preview`：显式生成仅供本机 QA 的 ad-hoc Dev 包到 `build/preview/darwin-arm64/gopad Dev.app`。它不能通过安装入口，也不启用正式更新。
 - `make build CHANNEL=release` / `make package CHANNEL=release`：要求干净的已提交源码、固定发行签名和更新密钥。正式包位于 `build/release/darwin-arm64/`。
 

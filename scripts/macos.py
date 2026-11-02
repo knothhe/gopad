@@ -10,9 +10,11 @@ from pathlib import Path
 import plistlib
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 
 sys.dont_write_bytecode = True
 from release import parse, ReleaseError
@@ -265,6 +267,34 @@ def build(channel, package=False):
         print('Preview is ad-hoc signed for local QA; installation and release updates are disabled.')
     return destination, meta, cert, sign
 
+def dev_processes(destination):
+    """Find only executables inside the exact installation, without argv matching."""
+    prefix = str(destination / 'Contents/MacOS') + '/'
+    processes = run('ps', '-axo', 'pid=,comm=', capture=True).splitlines()
+    matches = []
+    for line in processes:
+        fields = line.strip().split(None, 1)
+        if len(fields) == 2 and fields[1].startswith(prefix):
+            matches.append(int(fields[0]))
+    return matches
+
+def stop_dev(destination):
+    pids = dev_processes(destination)
+    if not pids:
+        return False
+    print(f'Stopping running Dev app: {destination}')
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    deadline = time.monotonic() + 10
+    while dev_processes(destination):
+        require(time.monotonic() < deadline,
+                'The target Dev app did not exit within 10 seconds; installation was left unchanged.')
+        time.sleep(0.1)
+    return True
+
 def install(destination):
     dest = no_symlink(destination).expanduser()
     require(dest.name == 'gopad Dev.app', 'Dev installation must use the exact name gopad Dev.app.')
@@ -277,27 +307,31 @@ def install(destination):
         require(receipt.is_file() and json.loads(receipt.read_text()).get('channel') == 'dev', 'Existing bundle has no verified Dev build identity.')
     output, meta, cert, identity = build('dev')
     source = output / 'gopad Dev.app'
-    # The user closes this exact running installation before retrying; never kill by name.
-    processes = run('ps', '-axo', 'args=', capture=True).splitlines()
-    require(not any(line.startswith(str(dest / 'Contents/MacOS') + '/') for line in processes),
-            'The target Dev app is running. Quit that installation, then run make install again.')
     dest.parent.mkdir(parents=True, exist_ok=True)
     no_symlink(dest.parent)
     with tempfile.TemporaryDirectory(prefix='.gopad-install-', dir=dest.parent) as temp:
         stage = Path(temp) / dest.name
         run('ditto', source, stage)
         verify_bundle(stage, meta, cert, identity)
+        # Finish copying and verification before interrupting the installed app.
+        restart = stop_dev(dest)
         backup = Path(temp) / 'previous.app'
-        if dest.exists():
-            dest.rename(backup)
         try:
-            stage.rename(dest)
-        except BaseException:
-            if backup.exists():
-                backup.rename(dest)
-            raise
-        register = Path('/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister')
-        run(register, '-f', dest)
+            if dest.exists():
+                dest.rename(backup)
+            try:
+                stage.rename(dest)
+            except BaseException:
+                if backup.exists():
+                    backup.rename(dest)
+                raise
+            register = Path('/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister')
+            run(register, '-f', dest)
+        finally:
+            # Also reopen the restored old installation if replacement fails.
+            if restart and dest.exists():
+                run('open', dest)
+                print(f'Restarted Dev app: {dest}')
     print(f'Installed source-built Dev app: {dest}\nPreferences preserved: {data}')
 
 def main():
