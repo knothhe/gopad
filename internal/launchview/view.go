@@ -5,7 +5,6 @@ package launchview
 
 import (
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -71,6 +70,7 @@ type Launchpad struct {
 	categoryDirection     int
 	slideReset            bool
 	slides                slideDeck
+	pageDirection         int
 	page                  int
 	selected              int
 	focus                 string
@@ -79,6 +79,7 @@ type Launchpad struct {
 	pageCount             int
 	filtered              []launcher.App
 	lastWheel             time.Time
+	scroll                pageScroll
 }
 
 func New(catalog Catalog, callbacks Callbacks) *Launchpad {
@@ -394,7 +395,14 @@ func (v *Launchpad) currentCategory() launcher.Category {
 }
 
 func (v *Launchpad) changePage(page int) {
-	v.page = max(0, min(v.pageCount-1, page))
+	count := max(1, v.pageCount)
+	if page != v.page {
+		v.pageDirection = 1
+		if page < v.page {
+			v.pageDirection = -1
+		}
+	}
+	v.page = (page%count + count) % count
 	v.selected = -1
 	v.focus = "search"
 }
@@ -449,7 +457,7 @@ func (v *Launchpad) launch(app launcher.App) {
 	}()
 }
 func (v *Launchpad) activateSelection() {
-	if len(v.filtered) == 0 {
+	if v.slides.dragging || len(v.filtered) == 0 {
 		return
 	}
 	index := v.selected
@@ -515,23 +523,7 @@ func (v *Launchpad) View(c *ui.Context) {
 		v.activateSelection()
 	}
 	root := ui.Box(c).Fill().Clip().HandleInput(func(ev ui.InputEvent) bool {
-		if ev.Kind != ui.InputScroll || ev.Momentum || time.Since(v.lastWheel) < 350*time.Millisecond {
-			return false
-		}
-		delta := ev.DY
-		if math.Abs(float64(ev.DX)) > math.Abs(float64(delta)) {
-			delta = ev.DX
-		}
-		if math.Abs(float64(delta)) < 8 {
-			return false
-		}
-		v.lastWheel = time.Now()
-		if delta > 0 {
-			v.changePage(v.page + 1)
-		} else {
-			v.changePage(v.page - 1)
-		}
-		return true
+		return v.handlePageScroll(ev, ev.Time)
 	})
 	frames := v.slideFrames(c, width, height, size, loaded)
 	root.Children(func() {
@@ -610,7 +602,7 @@ func (v *Launchpad) View(c *ui.Context) {
 		pagerStart := max(0, min(v.page-visiblePages/2, v.pageCount-visiblePages))
 		pagerWidth := float32(80 + visiblePages*19)
 		uikit.Pill(c, pagerWidth, 34, uikit.Clear).Absolute().Bottom(36).Left((width-pagerWidth)/2).Padding(0, 9).Gap(3).AlignItems(ui.Center).Justify(ui.Center).Children(func() {
-			ui.ButtonBase(c.Key("previous-page")).Size(24, 26).Center().Radius(12).Label(v.t("native.previousPage")).Disabled(v.page == 0).Children(func() { ui.Icon(c, leftIcon).Size(13, 13) }).OnClick(func() { v.changePage(v.page - 1) })
+			ui.ButtonBase(c.Key("previous-page")).Size(24, 26).Center().Radius(12).Label(v.t("native.previousPage")).Disabled(v.pageCount <= 1).Children(func() { ui.Icon(c, leftIcon).Size(13, 13) }).OnClick(func() { v.changePage(v.page - 1) })
 			for page := pagerStart; page < pagerStart+visiblePages; page++ {
 				target := page
 				ui.ButtonBase(c.Key(fmt.Sprintf("page-%d", page))).Size(16, 24).Center().Label(v.t("native.page", "number", fmt.Sprint(page+1))).Children(func() {
@@ -622,7 +614,7 @@ func (v *Launchpad) View(c *ui.Context) {
 					dot.Background(dot.AnimateColor("active", color, ui.Animation{Duration: 160 * time.Millisecond}))
 				}).OnClick(func() { v.changePage(target) })
 			}
-			ui.ButtonBase(c.Key("next-page")).Size(24, 26).Center().Radius(12).Label(v.t("native.nextPage")).Disabled(v.page == v.pageCount-1).Children(func() { ui.Icon(c, rightIcon).Size(13, 13) }).OnClick(func() { v.changePage(v.page + 1) })
+			ui.ButtonBase(c.Key("next-page")).Size(24, 26).Center().Radius(12).Label(v.t("native.nextPage")).Disabled(v.pageCount <= 1).Children(func() { ui.Icon(c, rightIcon).Size(13, 13) }).OnClick(func() { v.changePage(v.page + 1) })
 		})
 		ui.Row(c).Absolute().Right(38).Bottom(34).Gap(10).Children(func() {
 			uikit.IconButton(c, "manage", v.t("native.manage"), settingsIcon).OnClick(func() {

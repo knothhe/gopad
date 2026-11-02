@@ -39,6 +39,7 @@ type sceneFrame struct {
 }
 type slideDeck struct {
 	ready            bool
+	dragging         bool
 	last             sceneRequest
 	layers           []slideScene
 	targetID, nextID uint64
@@ -47,6 +48,9 @@ type slideDeck struct {
 }
 
 func (d *slideDeck) position(now time.Time) float32 {
+	if d.dragging {
+		return d.from
+	}
 	if d.from == d.to {
 		return d.to
 	}
@@ -71,6 +75,7 @@ func (d *slideDeck) reset(request sceneRequest, now time.Time) {
 	d.to = 0
 	d.started = now
 	d.ready = true
+	d.dragging = false
 	d.last = request
 }
 func (d *slideDeck) sync(request sceneRequest, direction int, now time.Time, reduceMotion, forceReset bool) {
@@ -84,7 +89,7 @@ func (d *slideDeck) sync(request sceneRequest, direction int, now time.Time, red
 	if d.ready && d.last.key == request.key && !sameScene(d.last, request) {
 		contextChanged = true
 	}
-	if forceReset || contextChanged || (reduceMotion && (request.key != d.last.key || d.from != d.to)) {
+	if forceReset || contextChanged || (reduceMotion && (request.key != d.last.key || d.from != d.to && !d.dragging)) {
 		d.reset(request, now)
 		return
 	}
@@ -93,6 +98,7 @@ func (d *slideDeck) sync(request sceneRequest, direction int, now time.Time, red
 		return
 	}
 	camera := d.position(now)
+	d.dragging = false
 	if direction == 0 {
 		direction = 1
 		if request.key.category == d.last.key.category && request.key.page < d.last.key.page {
@@ -156,10 +162,61 @@ func (d *slideDeck) sync(request sceneRequest, direction int, now time.Time, red
 	d.started = now
 	d.last = request
 }
+
+// dragBy moves the camera directly, keeping the current animation position
+// when a new gesture interrupts a settling page.
+func (d *slideDeck) dragBy(delta float32, now time.Time, page func(int) sceneRequest) {
+	camera := d.position(now)
+	if !d.dragging {
+		// Rapid keyboard/button paging can leave the requested page several
+		// slots ahead of the camera. Start from the page actually on screen,
+		// otherwise clamping to the requested page would jump the pixels.
+		var nearest *slideScene
+		for i := range d.layers {
+			layer := &d.layers[i]
+			if layer.request.key.category == d.last.key.category &&
+				(nearest == nil || abs(layer.slot-camera) < abs(nearest.slot-camera)) {
+				nearest = layer
+			}
+		}
+		if nearest != nil {
+			d.to = nearest.slot
+			d.targetID = nearest.id
+			d.last = nearest.request
+		}
+	}
+	d.dragging = true
+	d.from = max(d.to-1, min(d.to+1, camera+delta/d.last.width))
+	direction := 1
+	if d.from < d.to {
+		direction = -1
+	}
+	slot := d.to + float32(direction)
+	request := page(d.last.key.page + direction)
+	for _, layer := range d.layers {
+		if layer.slot == slot && sameScene(layer.request, request) {
+			return
+		}
+	}
+	kept := d.layers[:0]
+	for _, layer := range d.layers {
+		if layer.id == d.targetID || layer.slot != slot && abs(layer.slot-d.from) < 1 {
+			kept = append(kept, layer)
+		}
+	}
+	d.layers = kept
+	d.nextID++
+	request.apps = append([]launcher.App(nil), request.apps...)
+	d.layers = append(d.layers, slideScene{id: d.nextID, slot: slot, request: request})
+}
+
 func (d *slideDeck) frames(now time.Time) ([]sceneFrame, time.Duration) {
 	camera := d.position(now)
 	remaining := contentSlide.Duration - now.Sub(d.started)
 	moving := d.from != d.to && remaining > 0
+	if d.dragging {
+		moving = true
+	}
 	if !moving {
 		kept := d.layers[:0]
 		for _, layer := range d.layers {
@@ -184,7 +241,7 @@ func (d *slideDeck) frames(now time.Time) ([]sceneFrame, time.Duration) {
 	if current != nil {
 		frames = append(frames, *current)
 	}
-	if !moving {
+	if !moving || d.dragging {
 		return frames, 0
 	}
 	return frames, remaining
@@ -206,10 +263,37 @@ func (v *Launchpad) slideFrames(c *ui.Context, width, height, size float32, load
 	revision := v.iconEpoch
 	v.mu.Unlock()
 	request := sceneRequest{key: sceneKey{v.category, v.page}, apps: v.filtered[from:to], emptyKey: empty, query: v.query, width: width, height: height, size: size, capacity: v.pageSize, pageCount: v.pageCount, revision: revision, loaded: loaded}
-	v.slides.sync(request, v.categoryDirection, c.Now(), c.Preferences().ReduceMotion, v.slideReset)
+	direction := v.pageDirection
+	if v.categoryDirection != 0 {
+		direction = v.categoryDirection
+	}
+	v.slides.sync(request, direction, c.Now(), c.Preferences().ReduceMotion, v.slideReset)
+	if v.scroll.active && !v.slides.dragging {
+		v.scroll = pageScroll{axis: -1, phased: v.scroll.phased, last: v.scroll.last}
+	}
+	if v.scroll.active && !v.scroll.phased {
+		if c.Now().Sub(v.scroll.last) >= swipeIdle {
+			v.finishPageScroll(c.Now(), false)
+		} else {
+			c.After(swipeIdle - c.Now().Sub(v.scroll.last))
+		}
+	}
 	v.categoryDirection = 0
+	v.pageDirection = 0
 	v.slideReset = false
 	frames, wake := v.slides.frames(c.Now())
+	if v.slides.dragging {
+		for i := range frames {
+			frames[i].target = false
+		}
+		if c.Preferences().ReduceMotion {
+			for _, layer := range v.slides.layers {
+				if layer.id == v.slides.targetID {
+					return []sceneFrame{{scene: layer}}
+				}
+			}
+		}
+	}
 	if wake > 0 {
 		c.AnimationFrame()
 		c.After(wake)
