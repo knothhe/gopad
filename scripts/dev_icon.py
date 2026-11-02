@@ -5,13 +5,15 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import io
 import json
 from pathlib import Path
 import re
 import shutil
 import stat
 import sys
+import struct
+import subprocess
+import zlib
 import tempfile
 
 
@@ -19,8 +21,7 @@ TOOL = "h2-desktop-client/dev-icon"
 MANIFEST = ".dev-icon-manifest.json"
 PNG_SIZES = (16, 24, 32, 48, 64, 128, 256, 512, 1024)
 ICO_SIZES = (16, 20, 24, 32, 40, 48, 64, 128, 256)
-# Pillow writes standard ICNS slots, including 16@2x and 32@2x representations.
-ICNS_SIZES = (32, 64, 128, 256, 512, 1024)
+ICNS_SIZES = (16, 32, 64, 128, 256, 512, 1024)
 MAX_EDGE = 4096
 
 
@@ -28,26 +29,24 @@ class IconError(Exception):
     pass
 
 
-def load_pillow():
-    global Image, ImageDraw, ImageFont, PngInfo
-    try:
-        from PIL import Image, ImageDraw, ImageFont
-        from PIL.PngImagePlugin import PngInfo
-    except ImportError as exc:
-        raise IconError(
-            "Pillow >= 10.1 is required. Install in your chosen Python environment: "
-            "python3 -m pip install 'Pillow>=10.1'"
-        ) from exc
-    try:
-        ImageFont.load_default(size=12)
-    except (TypeError, ImportError) as exc:
-        raise IconError("Pillow >= 10.1 with its bundled scalable font is required.") from exc
+def native_renderer(*args, request=None):
+    if sys.platform != "darwin":
+        raise IconError("Dev icon generation requires macOS and Xcode Command Line Tools.")
+    renderer = Path(__file__).with_name("render-dev-icon.swift")
+    result = subprocess.run(
+        ["xcrun", "swift", str(renderer), *map(str, args)],
+        input=json.dumps(request) if request is not None else None,
+        text=True, capture_output=True,
+    )
+    if result.returncode:
+        raise IconError(result.stderr.strip() or "Native Dev icon renderer failed.")
+    return result.stdout
 
 
 def parser():
     p = argparse.ArgumentParser(
         description="Add a bottom-right Dev badge and generate PNG/ICO/ICNS in a separate directory.",
-        epilog="Requires Python >= 3.9 and Pillow >= 10.1. Input artwork is never modified.",
+        epilog="Requires macOS, Python >= 3.9 and Xcode Command Line Tools. Input artwork is never modified.",
     )
     p.add_argument("--input", required=True, type=Path, help="original square PNG, ICO or ICNS")
     p.add_argument("--output-dir", required=True, type=Path, help="dedicated Dev resource directory")
@@ -70,29 +69,18 @@ def checked_edge(width, height):
 
 def read_source(source):
     data = source.read_bytes()
-    with Image.open(io.BytesIO(data)) as image:
-        if image.info.get(TOOL):
-            raise IconError("Input is already a generated Dev PNG; use the original artwork to avoid double badging.")
-        if image.format not in {"PNG", "ICO", "ICNS"}:
-            raise IconError("Supported inputs are PNG, ICO and ICNS; export SVG or native catalogs with the project's existing tools first.")
-        checked_edge(*image.size)
-        frames = {}
-        if image.format == "ICO":
-            for width, height in sorted(image.ico.sizes()):
-                checked_edge(width, height)
-                frames[width] = image.ico.getimage((width, height)).convert("RGBA")
-        elif image.format == "ICNS":
-            for width, height, scale in sorted(image.icns.itersizes(), key=lambda size: (size[0] * size[2], size[2])):
-                edge = width * scale
-                checked_edge(edge, height * scale)
-                if edge not in frames:
-                    frames[edge] = image.icns.getimage((width, height, scale)).convert("RGBA")
-        else:
-            if getattr(image, "n_frames", 1) != 1:
-                raise IconError("Animated PNG inputs are not supported.")
-            frames[image.width] = image.convert("RGBA")
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        offset = 8
+        while offset + 12 <= len(data):
+            length = struct.unpack_from(">I", data, offset)[0]
+            if data[offset + 4:offset + 8] == b"tEXt" and data[offset + 8:offset + 8 + length].startswith(TOOL.encode() + b"\0"):
+                raise IconError("Input is already a generated Dev PNG; use the original artwork to avoid double badging.")
+            offset += length + 12
+    frames = json.loads(native_renderer("--inspect", source))
     if not frames:
         raise IconError("No usable icon representations found.")
+    for edge in frames:
+        checked_edge(edge, edge)
     # Container formats cannot carry the standalone PNG marker reliably.
     manifest = source.parent / MANIFEST
     if manifest.is_file() and not manifest.is_symlink():
@@ -103,46 +91,6 @@ def read_source(source):
         if isinstance(record, dict) and record.get("tool") == TOOL and isinstance(record.get("files"), dict) and source.name in record["files"]:
             raise IconError("Input belongs to generated Dev resources; use the original artwork.")
     return frames, digest(data)
-
-
-def source_frame(frames, edge):
-    # Retain small optical corrections when the source container provides them.
-    choice = next((size for size in sorted(frames) if size >= edge), max(frames))
-    image = frames[choice]
-    return image.copy() if choice == edge else image.resize((edge, edge), Image.Resampling.LANCZOS)
-
-
-def badge(image):
-    """Render each size independently; preserve pixels outside the badge rectangle."""
-    edge = image.width
-    # Keep tiny lettering pixel-aligned; shrinking extra strokes blurs the counters.
-    scale = 1 if edge <= 32 else 4
-    minimum_font = 6 if edge < 20 else 7
-    font = ImageFont.load_default(size=max(minimum_font, round(edge * 0.21)) * scale)
-    stroke = 0 if scale == 1 else max(1, round(edge * scale * 0.002))
-    bounds = font.getbbox("Dev", stroke_width=stroke)
-    pad_x, pad_y = max(1, round(edge * 0.045)) * scale, max(1, round(edge * 0.03)) * scale
-    width = bounds[2] - bounds[0] + pad_x * 2
-    height = bounds[3] - bounds[1] + pad_y * 2
-    layer = Image.new("RGBA", (width, height))
-    drawing = ImageDraw.Draw(layer)
-    drawing.rounded_rectangle(
-        (0, 0, width - 1, height - 1),
-        radius=round(height * 0.25),
-        fill=(23, 25, 31, 255),
-        outline=(255, 255, 255, 245),
-        width=max(scale, round(edge * 0.006) * scale),
-    )
-    drawing.text((pad_x - bounds[0], pad_y - bounds[1]), "Dev", font=font, fill="white",
-                 stroke_width=stroke, stroke_fill="white")
-    layer = layer.resize((round(width / scale), round(height / scale)), Image.Resampling.LANCZOS)
-    margin = max(1, round(edge * 0.035))
-    left, top = edge - margin - layer.width, edge - margin - layer.height
-    if left < 0 or top < 0:
-        raise IconError(f"Dev badge does not fit at {edge}px.")
-    result = image.copy()
-    result.alpha_composite(layer, (left, top))
-    return result
 
 
 def parse_options(args, largest):
@@ -223,8 +171,14 @@ def directory_snapshot(directory):
     return snapshot
 
 
-def write_resources(stage, frames, args, formats, sizes, required):
-    rendered = {size: badge(source_frame(frames, size)) for size in sorted(required)}
+def marked_png(data):
+    # Standard PNG tEXt marker prevents accidentally badging a generated PNG again.
+    payload = b"tEXt" + TOOL.encode() + b"\0" + b"1"
+    chunk = struct.pack(">I", len(payload) - 4) + payload + struct.pack(">I", zlib.crc32(payload))
+    return data[:33] + chunk + data[33:]
+
+
+def write_resources(stage, source, args, formats, sizes, required):
     names = []
 
     def reserve(name):
@@ -234,23 +188,31 @@ def write_resources(stage, frames, args, formats, sizes, required):
         names.append(name)
         return path
 
+    with tempfile.TemporaryDirectory(prefix=".render-", dir=stage.parent) as temporary:
+        paths = {size: Path(temporary) / f"{size}.png" for size in sorted(required)}
+        native_renderer(request={"source": str(source), "outputs": {str(size): str(path) for size, path in paths.items()}})
+        rendered = {size: marked_png(path.read_bytes()) for size, path in paths.items()}
     if "png" in formats:
-        info = PngInfo()
-        info.add_text(TOOL, "1")
         for size in sizes:
-            rendered[size].save(reserve(f"{args.name}-{size}.png"), format="PNG", pnginfo=info)
-        rendered[max(sizes)].save(reserve(f"{args.name}.png"), format="PNG", pnginfo=info)
+            reserve(f"{args.name}-{size}.png").write_bytes(rendered[size])
+        reserve(f"{args.name}.png").write_bytes(rendered[max(sizes)])
     if "ico" in formats:
-        rendered[256].save(
-            reserve(f"{args.name}.ico"), format="ICO",
-            sizes=[(size, size) for size in ICO_SIZES],
-            append_images=[rendered[size] for size in ICO_SIZES if size != 256],
-        )
+        # Modern ICO stores PNG representations with a little-endian directory.
+        offset = 6 + 16 * len(ICO_SIZES)
+        entries = []
+        for size in ICO_SIZES:
+            data = rendered[size]
+            entries.append(struct.pack("<BBBBHHII", size % 256, size % 256, 0, 0, 1, 32, len(data), offset))
+            offset += len(data)
+        reserve(f"{args.name}.ico").write_bytes(
+            struct.pack("<HHH", 0, 1, len(entries)) + b"".join(entries) + b"".join(rendered[size] for size in ICO_SIZES))
     if "icns" in formats:
-        rendered[1024].save(
-            reserve(f"{args.name}.icns"), format="ICNS",
-            append_images=[rendered[size] for size in ICNS_SIZES],
-        )
+        # PNG-backed standard and Retina slots, matching Apple's iconset sizes.
+        slots = ((b"icp4", 16), (b"ic11", 32), (b"icp5", 32), (b"ic12", 64),
+                 (b"icp6", 64), (b"ic07", 128), (b"ic13", 256), (b"ic08", 256),
+                 (b"ic14", 512), (b"ic09", 512), (b"ic10", 1024))
+        chunks = b"".join(kind + struct.pack(">I", len(rendered[size]) + 8) + rendered[size] for kind, size in slots)
+        reserve(f"{args.name}.icns").write_bytes(b"icns" + struct.pack(">I", len(chunks) + 8) + chunks)
     return {name: digest((stage / name).read_bytes()) for name in sorted(names)}
 
 
@@ -277,9 +239,9 @@ def generate(args):
             (stage / MANIFEST).unlink(missing_ok=True)
         else:
             stage.mkdir()
-        files = write_resources(stage, frames, args, formats, sizes, required)
+        files = write_resources(stage, source, args, formats, sizes, required)
         record = {"schema": 1, "tool": TOOL, "source": source.name, "source_sha256": source_hash,
-                  "generator_sha256": digest(Path(__file__).read_bytes()),
+                  "generator_sha256": digest(Path(__file__).read_bytes() + Path(__file__).with_name("render-dev-icon.swift").read_bytes()),
                   "name": args.name, "formats": sorted(formats),
                   "png_sizes": sizes if "png" in formats else [], "files": files}
         (stage / MANIFEST).write_text(json.dumps(record, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
@@ -315,13 +277,8 @@ def generate(args):
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
-        load_pillow()
-    except IconError as exc:
-        print(f"dev-icon: {exc}", file=sys.stderr)
-        return 1
-    try:
         output, files = generate(args)
-    except (IconError, OSError, ValueError, Image.DecompressionBombError) as exc:
+    except (IconError, OSError, ValueError) as exc:
         print(f"dev-icon: {exc}", file=sys.stderr)
         return 1
     print(f"Generated {len(files)} Dev icon files in {output}")

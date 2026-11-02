@@ -6,17 +6,15 @@
 
 ## 依赖与日常命令
 
-需要 macOS、Xcode Command Line Tools、`go.mod` 指定的 Go、Python 3.9+。界面测试使用 Node.js 22 和 npm 锁文件；应用运行不需要 Node。Dev 图标生成复用桌面 skill 的脚本，需要固定版本 Pillow：
+需要 macOS、Xcode Command Line Tools、`go.mod` 指定的 Go、Python 3.9+。界面测试使用 Node.js 22 和 npm 锁文件；应用运行不需要 Node。Dev 图标使用系统 AppKit 和 ImageIO 生成，无需安装 Python 第三方依赖：
 
 ```sh
-python3 -m venv .venv
-.venv/bin/python -m pip install -r scripts/requirements-dev.txt
 npm ci --prefix tests/frontend
 make check
 make run
-make build PYTHON=.venv/bin/python
-make package PYTHON=.venv/bin/python
-make install PYTHON=.venv/bin/python
+make build
+make package
+make install
 ```
 
 - `make build`：默认 `dev` 通道，生成 `build/dev/darwin-arm64/gopad Dev.app`，不安装。
@@ -34,8 +32,8 @@ Dev 构建默认要求长期复用的代码签名身份；缺失时明确失败�
 ```sh
 make signing-list
 make signing-config IDENTITY=这里填写所选身份的40位SHA1
-make build PYTHON=.venv/bin/python
-make install PYTHON=.venv/bin/python
+make build
+make install
 ```
 
 选择保存在被 Git 忽略的 `.gopad-local.json`（身份 SHA-1 与证书 SHA-256）。`GOPAD_SIGNING_IDENTITY` 可作单次覆盖，不修改已记住的选择。失效、证书不匹配或签名失败会停止，保留原安装。

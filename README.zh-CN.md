@@ -25,7 +25,7 @@ make run
 
 点击 Dock、菜单栏图标或使用全局快捷键唤出启动台，通过齿轮按钮或 `⌘,` 打开设置。
 
-构建应用包和安装时，`make build` / `make install` 还需要 Python 3.9+、Pillow 和已配置的签名身份，具体步骤见[构建、签名与发布指南](docs/build-release.md)。
+构建应用包和安装时，`make build` / `make install` 还需要 Python 3.9+ 和已配置的签名身份，具体步骤见[构建、签名与发布指南](docs/build-release.md)。
 
 配置 GitHub CI 签名时，运行 `make signing-upload`，按交互引导选择已有签名身份或 P12，并上传所需 Secrets。
 

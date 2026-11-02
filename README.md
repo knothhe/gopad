@@ -25,7 +25,7 @@ make run
 
 Open the launcher from the Dock, menu bar, or global shortcut. Use the gear button or `⌘,` to open settings.
 
-For app bundles and installation, `make build` / `make install` also require Python 3.9+, Pillow, and a configured signing identity. Follow the [build, signing, and release guide (中文)](docs/build-release.md) for setup.
+For app bundles and installation, `make build` / `make install` also require Python 3.9+ and a configured signing identity. Follow the [build, signing, and release guide (中文)](docs/build-release.md) for setup.
 
 For GitHub CI signing, run `make signing-upload` to choose an existing signing identity or P12 and upload the required secrets interactively.
 
