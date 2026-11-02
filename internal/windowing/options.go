@@ -35,6 +35,6 @@ func ManagerOptions() mygo.WindowOptions {
 // PlaceOverlay must be called on the UI thread. Bounds include the menu bar
 // and Dock; unlike the work area, they describe the whole selected display.
 func PlaceOverlay(window *mygo.Window, bounds mygo.Rectangle) {
+	prepareOverlay(window.NativeHandle())
 	window.SetBounds(bounds)
-	raiseOverlay(window.NativeHandle())
 }

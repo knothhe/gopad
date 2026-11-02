@@ -2,4 +2,4 @@
 
 package windowing
 
-func raiseOverlay(uintptr) {}
+func prepareOverlay(uintptr) {}
