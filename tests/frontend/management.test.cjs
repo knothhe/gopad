@@ -94,7 +94,7 @@ test('legacy migration, stable API order, visible tab cycle and accessible rovin
   assert.equal([...$('#navigation').children].filter(el=>el.tabIndex===0).length,1);
   assert.equal(key($('#icon-size'),'Tab').defaultPrevented,false);
   $('#sidebar-settings').click();assert.equal(key($('#settings-icon-size'),'Tab').defaultPrevented,false);
-  key(w.document,'Escape');await tick();assert.equal($('#settings-dialog').open,false);assert.equal(control.closed,0);
+  key(w.document,'Escape');await waitFor(()=>!$('#settings-dialog').open,'settings should finish closing');assert.equal($('#settings-dialog').open,false);assert.equal(control.closed,0);
   assert.equal($('[data-view="hidden"]'),null);
 });
 
@@ -117,7 +117,7 @@ test('pinyin, initials and alternate readings work in the grid and both pickers'
   input('#picker-search','cqyy');assert.equal($('#picker-list [data-option="music"]')!==null,true);assert.equal($('#picker-list [data-option="terminal"]'),null);
   input('#picker-search','zhong duan');assert.equal($('#picker-list [data-option="terminal"]')!==null,true);
   input('#picker-search','wx');assert.equal($('#picker-list [data-option="wechat"]'),null);
-  $('#picker-dialog [data-dialog-close]').click();await tick();
+  $('#picker-dialog [data-dialog-close]').click();await waitFor(()=>!$('#picker-dialog').open,'dialog should finish closing');
   $('[data-view="all"]').click();$('[aria-label="终端 的更多操作"]').click();$('#context-menu [data-action="categories"]').click();
   for(const query of ['gongzuo','GZ','工zuo']) {
     input('#picker-search',query);assert.equal($('#picker-list [data-option="work"]')!==null,true,query);
@@ -211,10 +211,10 @@ test('section editor stays available for empty and filtered sections, and closin
   $('[data-view="work"]').click();input('#search','does not exist');assert.deepEqual(ids(),[]);assert.equal($('#edit-category-apps').hidden,false);
   $('#edit-category-apps').click();assert.equal($('#picker-title').textContent,'编辑应用');assert.equal($('#picker-list [data-option="alpha"]').checked,true);assert.ok($('#picker-list [data-option="gamma"]'));
   const saved=structuredClone(control.preferences), saveCount=control.saves.length;
-  checked('alpha',false);checked('gamma',true);$('#picker-dialog [data-dialog-close]').click();await tick();
+  checked('alpha',false);checked('gamma',true);$('#picker-dialog [data-dialog-close]').click();await waitFor(()=>!$('#picker-dialog').open,'dialog should finish closing');
   assert.equal($('#picker-dialog').open,false);assert.equal(control.saves.length,saveCount);assert.deepEqual(control.preferences,saved);
   $('#edit-category-apps').click();assert.equal($('#picker-list [data-option="alpha"]').checked,true);assert.equal($('#picker-list [data-option="gamma"]').checked,false);
-  $('#picker-dialog [data-dialog-close]').click();await tick();
+  $('#picker-dialog [data-dialog-close]').click();await waitFor(()=>!$('#picker-dialog').open,'dialog should finish closing');
   $('[data-view="empty"]').click();assert.deepEqual(ids(),[]);assert.equal($('#edit-category-apps').hidden,false);$('#edit-category-apps').click();
   assert.equal($('#picker-dialog').open,true);assert.equal($('#picker-context').textContent,'空分区');assert.equal($('#picker-list input:checked'),null);assert.ok($('#picker-list [data-option="alpha"]'));
 });
@@ -233,7 +233,7 @@ test('keyboard activation of the section editor dismisses the app menu and Escap
   $('[data-view="work"]').click();$('[aria-label="Gamma 的更多操作"]').click();assert.equal($('#context-menu').hidden,false);
   $('#edit-category-apps').focus();$('#edit-category-apps').click();
   assert.equal($('#context-menu').hidden,true);assert.equal($('#picker-dialog').open,true);
-  key(w.document,'Escape');await tick();assert.equal($('#picker-dialog').open,false);assert.equal($('#context-menu').hidden,true);
+  key(w.document,'Escape');await waitFor(()=>!$('#picker-dialog').open,'picker should finish closing');assert.equal($('#picker-dialog').open,false);assert.equal($('#context-menu').hidden,true);
 });
 
 test('picker keeps its draft and visible error after failure; retry saves it',async t=>{
@@ -336,7 +336,8 @@ test('a failed quit request restores input after draining pending edits',async t
   control.actionFailures['/api/quit']={error:'quit failed'};
   input('#icon-size','96');$('#quit-button').click();assert.equal(w.document.body.inert,true);
   input('#icon-size','112');assert.equal(control.actions.filter(action=>action.url==='/api/quit').length,0);
-  gate.resolve();await tick(30);
+  gate.resolve();
+  await waitFor(()=>control.actions.some(action=>action.url==='/api/quit') && !w.document.body.inert,'failed quit should finish and restore input');
   assert.equal(control.preferences.iconSize,112);assert.equal(control.actions.filter(action=>action.url==='/api/quit').length,1);
   assert.equal(w.document.body.inert,false);assert.equal(w.document.body.classList.contains('leaving'),false);
 });
@@ -354,7 +355,7 @@ test('late picker save cannot close or alter a newly opened application picker',
   const {w,$,control,checked,key}=await fixture(t,{preferences:{categories:[...builtins(),custom('work','工作')]}});
   $('[aria-label="Gamma 的更多操作"]').click();$('#context-menu [data-action="categories"]').click();checked('work',true);
   const gate=deferred();control.plans.push(async()=>{await gate.promise;return {status:500}});$('#save-picker').click();
-  key(w.document,'Escape');await tick();$('[aria-label="Alpha 的更多操作"]').click();$('#context-menu [data-action="categories"]').click();
+  key(w.document,'Escape');await waitFor(()=>!$('#picker-dialog').open,'picker should finish closing');$('[aria-label="Alpha 的更多操作"]').click();$('#context-menu [data-action="categories"]').click();
   assert.equal($('#picker-context').textContent,'Alpha');gate.resolve();await tick(30);
   assert.equal($('#picker-dialog').open,true);assert.equal($('#picker-context').textContent,'Alpha');assert.equal($('#picker-error').hidden,true);assert.equal($('#save-picker').disabled,false);assert.equal($('#picker-list [data-option="work"]').checked,false);
 });
@@ -365,7 +366,7 @@ test('64 custom sections, long Unicode names and hidden builtins remain normaliz
   assert.equal($('#navigation').children.length,67);$('#edit-categories').click();assert.equal($('#new-category').disabled,true);
   assert.equal($('#category-list').children.length,68);
   assert.equal($('#category-list [data-category-row="section-63"] .category-name-button').textContent,'🌙'.repeat(40));
-  key(w.document,'Escape');await tick();$('[data-view="section-63"]').click();assert.equal($('#navigation [aria-selected="true"]').dataset.view,'section-63');
+  key(w.document,'Escape');await waitFor(()=>!$('#categories-dialog').open,'categories should finish closing');$('[data-view="section-63"]').click();assert.equal($('#navigation [aria-selected="true"]').dataset.view,'section-63');
 });
 
 test('web catalogs cover every static message, have matching placeholders, and UI source has no embedded copy',()=>{
@@ -500,7 +501,7 @@ test('a single custom section and temporary hidden management never label a pane
   const {w,$,control,key,ids}=await fixture(t,{preferences:{categories,lastCategory:'work'}});
   assert.deepEqual(ids(),['gamma']);assert.equal($('#navigation').hidden,true);assert.equal($('#apps-scroll').getAttribute('aria-label'),'工作台');assert.equal($('#apps-scroll').hasAttribute('aria-labelledby'),false);
   assert.equal($('#edit-category-apps').hidden,false);$('#edit-category-apps').click();assert.equal($('#picker-dialog').open,true);assert.equal($('#picker-list [data-option="gamma"]').checked,true);
-  $('#picker-dialog [data-dialog-close]').click();await tick();
+  $('#picker-dialog [data-dialog-close]').click();await waitFor(()=>!$('#picker-dialog').open,'dialog should finish closing');
   $('#sidebar-settings').click();$('#manage-hidden').click();await tick();
   assert.deepEqual(ids(),['delta']);assert.equal($('#navigation').hidden,true);assert.equal($('#category-shortcut').hidden,true);assert.equal($('#apps-scroll').getAttribute('aria-label'),'隐藏');assert.equal($('#apps-scroll').hasAttribute('aria-labelledby'),false);
   $('#edit-categories').click();assert.equal($('#categories-dialog').open,true);assert.ok($('[data-category-row="work"]'));
@@ -568,7 +569,7 @@ test('launcher settings migrate defaults, save parity choices and roll back fail
   control.plans.push(()=>({status:500}));$('#dismiss-on-empty-click').click();await tick();assert.equal($('#dismiss-on-empty-click').getAttribute('aria-checked'),'false');
   $('#tab-cycles-categories').click();await tick();assert.equal(key($('#search'),'Tab').defaultPrevented,false);assert.equal(key($('#search'),'Tab',{ctrlKey:true}).defaultPrevented,true);
   input('#search','Alpha');key(w.document,'Escape');assert.equal($('#search').value,'');assert.equal(control.closed,0);
-  key(w.document,'Escape');await tick();assert.equal(control.closed,1);
+  key(w.document,'Escape');await waitFor(()=>control.closed===1,'manager should finish closing');assert.equal(control.closed,1);
 });
 
 test('shortcut editing validates modifiers, normalizes keys, handles rejection and resets to default',async t=>{
@@ -587,7 +588,7 @@ test('background dismissal never applies to the management window or its control
   $('#apps-scroll').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));w.document.body.click();assert.equal(control.closed,0);
   $('#sidebar-settings').click();assert.equal($('#settings-dialog').open,true);assert.equal(control.closed,0);
   $('#loop-pages').click();await tick();assert.deepEqual(control.preferences.pageMemory,{all:3});assert.equal(control.preferences.lastCategory,'favorites');
-  $('#settings-dialog [data-dialog-close]').click();await tick();assert.equal(control.closed,0);
+  $('#settings-dialog [data-dialog-close]').click();await waitFor(()=>!$('#settings-dialog').open,'dialog should finish closing');assert.equal(control.closed,0);
 });
 
 
@@ -621,47 +622,47 @@ test('optional recent section follows usage order without exposing hidden apps o
   assert.equal($('[data-view="recent"]'),null);assert.equal($('#show-recent-apps').getAttribute('aria-checked'),'false');assert.equal($('#show-category-folders').getAttribute('aria-checked'),'false');
   $('#show-recent-apps').click();await tick();assert.ok($('[data-view="recent"]'));$('[data-view="recent"]').click();assert.deepEqual(ids(),['alpha','gamma']);assert.equal($('#edit-category-apps').hidden,true);
   $('#edit-categories').click();assert.equal($('[data-category-row="recent"]'),null);
-  $('#categories-dialog [data-dialog-close]').click();await tick();$('#show-category-folders').click();await tick();assert.equal(control.preferences.showCategoryFolders,true);assert.equal(control.preferences.categories.some(category=>category.id==='recent'),false);
+  $('#categories-dialog [data-dialog-close]').click();await waitFor(()=>!$('#categories-dialog').open,'dialog should finish closing');$('#show-category-folders').click();await tick();assert.equal(control.preferences.showCategoryFolders,true);assert.equal(control.preferences.categories.some(category=>category.id==='recent'),false);
   $('#show-recent-apps').click();await tick();assert.equal($('[data-view="recent"]'),null);assert.equal(control.preferences.showRecentApps,false);assert.deepEqual(control.preferences.recent,['alpha','delta','gamma']);
 });
 
 test('suggested section preview applies only selected groups and preserves manual memberships',async t=>{
   const suggestions=[custom('suggested-development','开发',['gamma','alpha']),custom('suggested-utilities','工具',['beta'])];
   const {$,control,event}=await fixture(t,{suggestions,preferences:{categories:[...builtins(),custom('work','工作',['alpha'])]}});
-  $('#edit-categories').click();$('#suggest-categories').click();await tick(20);
+  $('#edit-categories').click();$('#suggest-categories').click();await waitFor(()=>$('#category-suggestions-dialog').open && $('#suggestions-list').getAttribute('aria-busy')==='false','suggestion preview should finish loading');
   assert.equal($('#category-suggestions-dialog').open,true);assert.equal(control.saves.length,0);assert.equal($('#suggestions-list').textContent.includes('2 个应用'),true);assert.equal($('#suggestions-list').textContent.includes('Gamma, Alpha'),true);
   const utility=$('[data-suggestion="suggested-utilities"]');utility.checked=false;utility.dispatchEvent(event('change'));
-  assert.equal($('#suggestions-count').textContent,'已选 1');$('#apply-suggestions').click();await tick(25);
+  assert.equal($('#suggestions-count').textContent,'已选 1');$('#apply-suggestions').click();await waitFor(()=>!$('#category-suggestions-dialog').open,'successful suggestion save should close the preview');
   assert.equal($('#category-suggestions-dialog').open,false);assert.deepEqual(control.preferences.categories.find(category=>category.id==='work').appIds,['alpha']);assert.deepEqual(control.preferences.categories.find(category=>category.id==='suggested-development').appIds,['gamma','alpha']);assert.equal(control.preferences.categories.some(category=>category.id==='suggested-utilities'),false);
   $('#edit-categories').click();assert.ok($('[data-category-row="suggested-development"] [data-category-action="rename"]'));assert.ok($('[data-category-row="suggested-development"] [data-category-action="delete"]'));
 });
 
 test('suggested sections handle empty metadata, load failure and save failure without losing the draft',async t=>{
   const {$,control}=await fixture(t);
-  $('#edit-categories').click();$('#suggest-categories').click();await tick(20);
+  $('#edit-categories').click();$('#suggest-categories').click();await waitFor(()=>$('#category-suggestions-dialog').open && $('#suggestions-list').getAttribute('aria-busy')==='false','suggestion preview should finish loading');
   assert.equal($('#suggestions-status').textContent,'应用的类别信息中暂无可添加的新分组。');assert.equal($('#apply-suggestions').disabled,true);assert.equal(control.saves.length,0);
-  $('#category-suggestions-dialog [data-dialog-close]').click();await tick();
-  control.suggestionPlans.push(()=>({status:500}));$('#edit-categories').click();$('#suggest-categories').click();await tick(20);assert.equal($('#suggestions-error').hidden,false);assert.equal($('#retry-suggestions').hidden,false);
-  control.suggestionPlans.push(()=>({categories:[custom('suggested-utilities','工具',['gamma','beta'])]}));$('#retry-suggestions').click();await tick();assert.equal($('#suggestions-error').hidden,true);assert.ok($('[data-suggestion="suggested-utilities"]').checked);
-  control.plans.push(()=>({status:500}));$('#apply-suggestions').click();await tick();assert.equal($('#category-suggestions-dialog').open,true);assert.equal($('#suggestions-error').hidden,false);assert.ok($('[data-suggestion="suggested-utilities"]').checked);
-  $('#apply-suggestions').click();await tick(20);assert.equal($('#category-suggestions-dialog').open,false);assert.deepEqual(control.preferences.categories.find(category=>category.id==='suggested-utilities').appIds,['gamma','beta']);
+  $('#category-suggestions-dialog [data-dialog-close]').click();await waitFor(()=>!$('#category-suggestions-dialog').open,'dialog should finish closing');
+  control.suggestionPlans.push(()=>({status:500}));$('#edit-categories').click();$('#suggest-categories').click();await waitFor(()=>$('#category-suggestions-dialog').open && $('#suggestions-list').getAttribute('aria-busy')==='false','suggestion preview should finish loading');assert.equal($('#suggestions-error').hidden,false);assert.equal($('#retry-suggestions').hidden,false);
+  control.suggestionPlans.push(()=>({categories:[custom('suggested-utilities','工具',['gamma','beta'])]}));$('#retry-suggestions').click();await waitFor(()=>$('#suggestions-list').getAttribute('aria-busy')==='false','suggestion retry should finish loading');assert.equal($('#suggestions-error').hidden,true);assert.ok($('[data-suggestion="suggested-utilities"]').checked);
+  control.plans.push(()=>({status:500}));$('#apply-suggestions').click();await waitFor(()=>!$('#suggestions-error').hidden && !$('#apply-suggestions').disabled,'failed suggestion save should restore the draft for retry');assert.equal($('#category-suggestions-dialog').open,true);assert.equal($('#suggestions-error').hidden,false);assert.ok($('[data-suggestion="suggested-utilities"]').checked);
+  $('#apply-suggestions').click();await waitFor(()=>!$('#category-suggestions-dialog').open,'successful suggestion save should close the preview');assert.equal($('#category-suggestions-dialog').open,false);assert.deepEqual(control.preferences.categories.find(category=>category.id==='suggested-utilities').appIds,['gamma','beta']);
 });
 
 
 test('suggestion preview enforces the category limit without replacing existing sections',async t=>{
   const categories=[...builtins(),...Array.from({length:63},(_,index)=>custom(`manual-${index}`,`Manual ${index}`,['alpha']))];
   const {$,control,event}=await fixture(t,{preferences:{categories},suggestions:[custom('suggested-development','Development',['gamma','alpha']),custom('suggested-utilities','Utilities',['gamma','beta'])]});
-  $('#edit-categories').click();$('#suggest-categories').click();await tick(20);
+  $('#edit-categories').click();$('#suggest-categories').click();await waitFor(()=>$('#category-suggestions-dialog').open && $('#suggestions-list').getAttribute('aria-busy')==='false','suggestion preview should finish loading');
   const second=$('[data-suggestion="suggested-utilities"]');assert.equal(second.checked,false);second.checked=true;second.dispatchEvent(event('change'));
   assert.equal($('#apply-suggestions').disabled,true);assert.equal($('#suggestions-error').hidden,false);assert.equal($('#retry-suggestions').hidden,true);assert.equal(control.saves.length,0);
-  const first=$('[data-suggestion="suggested-development"]');first.checked=false;first.dispatchEvent(event('change'));assert.equal($('#apply-suggestions').disabled,false);$('#apply-suggestions').click();await tick(20);
+  const first=$('[data-suggestion="suggested-development"]');first.checked=false;first.dispatchEvent(event('change'));assert.equal($('#apply-suggestions').disabled,false);$('#apply-suggestions').click();await waitFor(()=>!$('#category-suggestions-dialog').open,'successful suggestion save should close the preview');
   assert.equal(control.preferences.categories.filter(category=>!['all','favorites','system','hidden'].includes(category.id)).length,64);assert.ok(control.preferences.categories.find(category=>category.id==='manual-0'));assert.ok(control.preferences.categories.find(category=>category.id==='suggested-utilities'));
 });
 
 
 test('suggestion checkbox focus survives selection and unrelated preference rerenders',async t=>{
   const {w,$,control,event,input}=await fixture(t,{suggestions:[custom('suggested-development','Development',['gamma','alpha']),custom('suggested-utilities','Utilities',['gamma','beta'])]});
-  $('#edit-categories').click();$('#suggest-categories').click();await tick(20);
+  $('#edit-categories').click();$('#suggest-categories').click();await waitFor(()=>$('#category-suggestions-dialog').open && $('#suggestions-list').getAttribute('aria-busy')==='false','suggestion preview should finish loading');
   const checkbox=$('[data-suggestion="suggested-development"]');checkbox.focus();checkbox.checked=false;checkbox.dispatchEvent(event('change'));
   assert.equal(w.document.activeElement.dataset.suggestion,'suggested-development');assert.equal(w.document.activeElement.checked,false);
   input('#icon-size','96');await tick();assert.equal(w.document.activeElement.dataset.suggestion,'suggested-development');assert.equal(w.document.activeElement.checked,false);assert.equal(control.preferences.iconSize,96);
