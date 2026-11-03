@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 type App struct {
@@ -22,17 +23,34 @@ type App struct {
 	BundleID string `json:"bundleId"`
 	Version  string `json:"version"`
 	Kind     string `json:"kind"`
+	Category string `json:"category"`
 }
 
 type Preferences struct {
-	Hidden          []string   `json:"hidden"`
-	Order           []string   `json:"order"`
-	IconSize        int        `json:"iconSize"`
-	Favorites       []string   `json:"favorites"`
-	Categories      []Category `json:"categories"`
-	Language        string     `json:"language"`
-	ShowMenuBarIcon bool       `json:"showMenuBarIcon"`
-	LastCategory    string     `json:"lastCategory"`
+	Hidden              []string          `json:"hidden"`
+	Order               []string          `json:"order"`
+	IconSize            int               `json:"iconSize"`
+	Favorites           []string          `json:"favorites"`
+	Categories          []Category        `json:"categories"`
+	Language            string            `json:"language"`
+	ShowMenuBarIcon     bool              `json:"showMenuBarIcon"`
+	LastCategory        string            `json:"lastCategory"`
+	SearchScope         string            `json:"searchScope"`
+	SearchRanking       string            `json:"searchRanking"`
+	LoopPages           bool              `json:"loopPages"`
+	RememberPage        bool              `json:"rememberPage"`
+	DismissOnEmptyClick bool              `json:"dismissOnEmptyClick"`
+	EscapeClearsSearch  bool              `json:"escapeClearsSearch"`
+	RememberCategory    bool              `json:"rememberCategory"`
+	TabCyclesCategories bool              `json:"tabCyclesCategories"`
+	PageMemory          map[string]int    `json:"pageMemory"`
+	Shortcut            string            `json:"shortcut"`
+	LaunchAtLogin       bool              `json:"launchAtLogin"`
+	Aliases             map[string]string `json:"aliases"`
+	AppLocations        map[string]string `json:"appLocations"`
+	ShowRecentApps      bool              `json:"showRecentApps"`
+	Recent              []string          `json:"recent"`
+	ShowCategoryFolders bool              `json:"showCategoryFolders"`
 }
 
 type State struct {
@@ -46,7 +64,9 @@ type Service struct {
 	apps        []App
 	preferences Preferences
 	loaded      bool
+	lastScan    time.Time
 	scan        func() ([]App, error)
+	open        func(string, bool) error
 	icons       map[string][]byte
 	iconMu      sync.Mutex
 }
@@ -60,7 +80,7 @@ func New(configPath string) (*Service, error) {
 		}
 		configPath = filepath.Join(dir, "gopad", "preferences.json")
 	}
-	s := &Service{configPath: configPath, preferences: defaultPreferences(), scan: ScanApplications, icons: make(map[string][]byte)}
+	s := &Service{configPath: configPath, preferences: defaultPreferences(), scan: ScanApplications, open: openApplication, icons: make(map[string][]byte)}
 	data, err := os.ReadFile(configPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
@@ -107,7 +127,7 @@ func backupMalformedPreferences(configPath string, data []byte) (string, error) 
 }
 
 func defaultPreferences() Preferences {
-	return Preferences{Hidden: []string{}, Order: []string{}, Favorites: []string{}, IconSize: 80, Categories: DefaultCategories(), Language: "system", LastCategory: "all"}
+	return Preferences{Hidden: []string{}, Order: []string{}, Favorites: []string{}, Recent: []string{}, IconSize: 80, Categories: DefaultCategories(), Language: "system", LastCategory: "all", SearchScope: "all", SearchRanking: "relevance", RememberPage: true, DismissOnEmptyClick: true, EscapeClearsSearch: true, RememberCategory: true, TabCyclesCategories: true, PageMemory: map[string]int{}, Aliases: map[string]string{}, AppLocations: map[string]string{}}
 }
 
 func normalizePreferences(p Preferences) Preferences {
@@ -123,7 +143,47 @@ func normalizePreferences(p Preferences) Preferences {
 	p.Hidden = uniqueIDs(p.Hidden)
 	p.Order = uniqueIDs(p.Order)
 	p.Favorites = uniqueIDs(p.Favorites)
+	p.Recent = uniqueIDs(p.Recent)
+	p.Recent = p.Recent[:min(len(p.Recent), 24)]
 	p.Categories = CategoriesFor(p)
+	if p.SearchScope != "current" {
+		p.SearchScope = "all"
+	}
+	if p.SearchRanking != "manual" {
+		p.SearchRanking = "relevance"
+	}
+	pages := make(map[string]int)
+	for _, category := range p.Categories {
+		if page, ok := p.PageMemory[category.ID]; ok {
+			pages[category.ID] = max(0, min(page, maxAppIDs))
+		}
+	}
+	if page, ok := p.PageMemory["recent"]; ok {
+		pages["recent"] = max(0, min(page, maxAppIDs))
+	}
+	p.PageMemory = pages
+	aliases := make(map[string]string)
+	for id, alias := range p.Aliases {
+		alias = strings.TrimSpace(alias)
+		if validAppID(id) && alias != "" {
+			aliases[id] = string([]rune(alias)[:min(len([]rune(alias)), 80)])
+		}
+		if len(aliases) >= maxAppIDs {
+			break
+		}
+	}
+	p.Aliases = aliases
+	locations := make(map[string]string)
+	for id, path := range p.AppLocations {
+		if validAppID(id) && filepath.IsAbs(path) && strings.HasSuffix(strings.ToLower(path), ".app") {
+			locations[id] = path
+		}
+		if len(locations) >= maxAppIDs {
+			break
+		}
+	}
+	p.AppLocations = locations
+	p.Shortcut = strings.TrimSpace(p.Shortcut)
 	if strings.TrimSpace(p.Language) == "" {
 		p.Language = "system"
 	}
@@ -166,7 +226,23 @@ func clonePreferences(p Preferences) Preferences {
 	p.Hidden = append([]string{}, p.Hidden...)
 	p.Order = append([]string{}, p.Order...)
 	p.Favorites = append([]string{}, p.Favorites...)
+	p.Recent = append([]string{}, p.Recent...)
 	p.Categories = cloneCategories(p.Categories)
+	pages := make(map[string]int, len(p.PageMemory))
+	for id, page := range p.PageMemory {
+		pages[id] = page
+	}
+	p.PageMemory = pages
+	aliases := make(map[string]string, len(p.Aliases))
+	for id, alias := range p.Aliases {
+		aliases[id] = alias
+	}
+	p.Aliases = aliases
+	locations := make(map[string]string, len(p.AppLocations))
+	for id, path := range p.AppLocations {
+		locations[id] = path
+	}
+	p.AppLocations = locations
 	return p
 }
 
@@ -182,8 +258,7 @@ func (s *Service) loadLocked() error {
 	if err != nil {
 		return err
 	}
-	s.apps, s.loaded = apps, true
-	return nil
+	return s.installAppsLocked(apps)
 }
 
 func (s *Service) State() (State, error) {
@@ -202,10 +277,27 @@ func (s *Service) Refresh() (State, error) {
 	if err != nil {
 		return State{}, err
 	}
-	s.apps, s.loaded = apps, true
-	s.iconMu.Lock()
-	s.icons = make(map[string][]byte)
-	s.iconMu.Unlock()
+	if err := s.installAppsLocked(apps); err != nil {
+		return State{}, err
+	}
+	return s.stateLocked(), nil
+}
+
+// RefreshIfStale avoids a filesystem scan on every quick reopen. Explicit
+// Refresh always rescans, while a failed scan leaves the last catalog intact.
+func (s *Service) RefreshIfStale() (State, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.loaded && time.Since(s.lastScan) < 5*time.Second {
+		return s.stateLocked(), nil
+	}
+	apps, err := s.scan()
+	if err != nil {
+		return State{}, err
+	}
+	if err := s.installAppsLocked(apps); err != nil {
+		return State{}, err
+	}
 	return s.stateLocked(), nil
 }
 
@@ -236,6 +328,9 @@ func (s *Service) SaveManagementPreferences(p Preferences) (State, error) {
 		return State{}, err
 	}
 	p.LastCategory = s.preferences.LastCategory
+	p.PageMemory = clonePreferences(s.preferences).PageMemory
+	p.AppLocations = clonePreferences(s.preferences).AppLocations
+	p.Recent = append([]string{}, s.preferences.Recent...)
 	return s.savePreferencesLocked(p)
 }
 
@@ -312,7 +407,11 @@ func (s *Service) Launch(id string) error {
 	if err := validateBundle(a.Path); err != nil {
 		return err
 	}
-	return openApplication(a.Path, false)
+	if err := s.open(a.Path, false); err != nil {
+		return err
+	}
+	s.recordLaunch(a.ID)
+	return nil
 }
 
 func (s *Service) Reveal(id string) error {
@@ -320,7 +419,7 @@ func (s *Service) Reveal(id string) error {
 	if err != nil {
 		return err
 	}
-	return openApplication(a.Path, true)
+	return s.open(a.Path, true)
 }
 
 // Path returns only catalogued paths, never an arbitrary file supplied by a client.
@@ -336,14 +435,15 @@ func (s *Service) Icon(id string) ([]byte, error) {
 	}
 	s.iconMu.Lock()
 	defer s.iconMu.Unlock()
-	if png, ok := s.icons[id]; ok {
+	key := iconCacheKey(a)
+	if png, ok := s.icons[key]; ok {
 		return png, nil
 	}
 	png, err := applicationIcon(a.Path)
 	if err != nil {
 		return nil, err
 	}
-	s.icons[id] = png
+	s.icons[key] = png
 	return png, nil
 }
 

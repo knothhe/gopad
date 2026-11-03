@@ -23,5 +23,8 @@
   "error.updateUnavailable": "Updates are not available for this build.",
   "error.updateSave": "The update preference could not be saved.",
   "app.shortcut.release": "⌃ ⌥ Space",
-  "app.shortcut.dev": "⌃ ⌥ ⇧ Space"
+  "app.shortcut.dev": "⌃ ⌥ ⇧ Space",
+  "error.invalidShortcut": "Enter a shortcut such as Ctrl+Alt+Space or F4.",
+  "error.shortcutUnavailable": "This shortcut could not be registered. Try another combination.",
+  "error.loginUnavailable": "The login item could not be changed. Check Login Items in System Settings and make sure gopad is installed in Applications."
 }

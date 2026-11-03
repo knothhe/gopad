@@ -11,6 +11,7 @@ func swipePad() (*Launchpad, time.Time) {
 	now := time.Unix(100, 0)
 	apps := fixture(30).state.Apps
 	v := &Launchpad{pageCount: 3, pageSize: 10, filtered: apps}
+	v.state.Preferences.LoopPages = true
 	v.slides.reset(slideRequest("", 0, apps[:10]), now)
 	return v, now
 }

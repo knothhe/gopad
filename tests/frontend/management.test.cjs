@@ -17,7 +17,7 @@ const deferred = () => { let resolve; const promise = new Promise(done => {resol
 async function fixture(t,options={}) {
   const dom = new JSDOM(fs.readFileSync(path.join(root,'frontend/index.html'),'utf8'),{url:'http://127.0.0.1:5192/',runScripts:'outside-only',pretendToBeVisual:true});
   const w = dom.window;
-  const control = {systemLocale:options.systemLocale || 'zh-CN',metadata:{appName:'gopad Dev',shortcut:'⌃ ⌥ ⇧ Space',version:'dev',channel:'dev',...options.metadata},updateState:{status:'ready',currentVersion:'0.1.0',automaticChecks:true,...options.updateState},updatePlans:[],i18nPlans:[],actionFailures:{},warnings:[],preferences:{hidden:['delta'],favorites:[],order:[],iconSize:80,language:'system',lastCategory:'all',...structuredClone(options.preferences||{})},plans:[],saves:[],actions:[],closed:0,errors:[]};
+  const control = {systemLocale:options.systemLocale || 'zh-CN',metadata:{appName:'gopad Dev',shortcut:'⌃ ⌥ ⇧ Space',version:'dev',channel:'dev',...options.metadata},updateState:{status:'ready',currentVersion:'0.1.0',automaticChecks:true,...options.updateState},updatePlans:[],i18nPlans:[],actionFailures:{},warnings:[],preferences:{hidden:['delta'],favorites:[],order:[],iconSize:80,language:'system',lastCategory:'all',...structuredClone(options.preferences||{})},plans:[],saves:[],baselines:[],refreshPlans:[],suggestionPlans:[],actions:[],closed:0,errors:[]};
   w.structuredClone = structuredClone;
   w.matchMedia = () => ({matches:true});
   w.mygo = {window:{close:async()=>{control.closed++}}};
@@ -38,6 +38,7 @@ async function fixture(t,options={}) {
       const messages=Object.assign({},...fs.readdirSync(directory).filter(name=>name.endsWith('.json')).map(name=>JSON.parse(fs.readFileSync(path.join(directory,name),'utf8'))));
       return Response.json({locale,language,messages,...control.metadata});
     }
+    if(url==='/api/category-suggestions') { const plan=await control.suggestionPlans.shift()?.(); if(plan?.status) return Response.json({error:'suggestions failed'},{status:plan.status}); return Response.json(plan || {categories:options.suggestions || []}); }
     if(url==='/api/update') return Response.json(control.updateState);
     if(url==='/api/update/check') return Response.json({ok:true});
     if(url==='/api/update/preferences') {
@@ -46,11 +47,13 @@ async function fixture(t,options={}) {
       control.updateState={...control.updateState,...JSON.parse(request.body)};
       return Response.json(control.updateState);
     }
+    if(url==='/api/refresh') { const plan=await control.refreshPlans.shift()?.(); if(plan) return Response.json(plan); }
     if(control.actionFailures[url]) return Response.json(control.actionFailures[url],{status:500});
     if(url==='/api/preferences') {
-      const candidate=JSON.parse(request.body);control.saves.push(candidate);
-      const result=await control.plans.shift()?.(structuredClone(candidate));
+      const {basePreferences,...candidate}=JSON.parse(request.body);control.saves.push(candidate);control.baselines.push(basePreferences);
+      const result=await control.plans.shift()?.(structuredClone(candidate),structuredClone(basePreferences));
       if(result?.status) return Response.json({error:result.error||'测试保存失败',errorKey:result.errorKey},{status:result.status});
+      if(options.mergeBaseline && basePreferences && !result?.preferences) for(const field of Object.keys(candidate)) if(JSON.stringify(candidate[field])===JSON.stringify(basePreferences[field])) candidate[field]=structuredClone(control.preferences[field] ?? candidate[field]);
       control.preferences=structuredClone(result?.preferences||candidate);
     }
     return Response.json(['/api/state','/api/preferences','/api/refresh'].includes(url)?{apps:options.apps || apps,preferences:structuredClone(control.preferences),pinyin:options.pinyin || {}}:{ok:true});
@@ -510,4 +513,143 @@ test('toolbar inset follows actual icon frames at normal and minimum widths for 
   Object.defineProperty($('#apps-scroll'),'offsetWidth',{value:714,configurable:true});Object.defineProperty($('#app-grid'),'clientWidth',{value:709,configurable:true});
   w.dispatchEvent(new w.Event('resize'));assert.equal(w.document.documentElement.style.getPropertyValue('--grid-inline-inset'),'31.125px');assert.equal(w.document.documentElement.style.getPropertyValue('--grid-inline-end-inset'),'36.125px');
   assert.equal(inset(0,164,112,4),0);
+});
+
+
+test('global search ranks names ahead of metadata, preserves the section and excludes hidden apps',async t=>{
+  const searchApps=[
+    {id:'metadata',name:'Other',bundleId:'example.alpha',path:'/Applications/Other.app'},
+    {id:'contains',name:'My Alpha Tool',path:'/Applications/My Alpha Tool.app'},
+    {id:'prefix',name:'Alpha Editor',path:'/Applications/Alpha Editor.app'},
+    {id:'exact',name:'Alpha',path:'/Applications/Alpha.app'},
+    {id:'secret',name:'Alpha Hidden',path:'/Applications/Alpha Hidden.app'},
+  ];
+  const {$,input,ids,active,event,control}=await fixture(t,{apps:searchApps,preferences:{hidden:['secret'],categories:[...builtins(),custom('work','工作',['metadata'])],lastCategory:'work',futurePreference:{keep:true}}});
+  $('#apps-scroll').scrollTop=147;
+  input('#search','Alpha');
+  assert.deepEqual(ids(),['exact','prefix','contains','metadata']);
+  assert.equal(active(),'work');assert.equal($('#search-scope-label').textContent,'全部未隐藏应用');
+  assert.equal($('[data-id="exact"]').classList.contains('keyboard-selected'),true);
+  $('[aria-label="Alpha 的更多操作"]').click();assert.equal($('#context-menu [data-action="remove-category"]'),null);
+  $('#clear-search').click();assert.deepEqual(ids(),['metadata']);assert.equal($('#apps-scroll').scrollTop,147);assert.equal($('#search-scope-label').hidden,true);
+  $('#search-scope').value='current';$('#search-scope').dispatchEvent(event('change'));await tick();
+  input('#search','Alpha');assert.deepEqual(ids(),['metadata']);assert.equal($('#search-scope-label').textContent,'搜索范围：工作');
+  assert.deepEqual(control.preferences.futurePreference,{keep:true});
+});
+
+test('manual search order, pinyin, aliases and hidden management respect the selected search scope',async t=>{
+  const searchApps=[{id:'metadata',name:'Other',bundleId:'example.alpha',path:'/Applications/Other.app'}, {id:'exact',name:'Alpha',path:'/Applications/Alpha.app'}, {id:'wechat',name:'微信',path:'/Applications/WeChat.app'}, {id:'secret',name:'Alpha Hidden',path:'/Applications/Secret.app'}];
+  const {$,input,ids,event}=await fixture(t,{apps:searchApps,pinyin:{微:['wei'],信:['xin']},preferences:{hidden:['secret'],searchRanking:'manual',aliases:{wechat:'chat'}}});
+  input('#search','alpha');assert.deepEqual(ids(),['metadata','exact']);
+  $('#search-ranking').value='relevance';$('#search-ranking').dispatchEvent(event('change'));await tick();assert.deepEqual(ids(),['exact','metadata']);
+  input('#search','wx');assert.deepEqual(ids(),['wechat']);input('#search','chat');assert.deepEqual(ids(),['wechat']);
+  $('#sidebar-settings').click();$('#manage-hidden').click();await tick();input('#search','Alpha');assert.deepEqual(ids(),['secret']);assert.equal($('#search-scope-label').textContent,'搜索范围：隐藏');
+});
+
+test('launcher settings migrate defaults, save parity choices and roll back failed changes',async t=>{
+  const {w,$,control,key,input}=await fixture(t);
+  for(const id of ['dismiss-on-empty-click','escape-clears-search','remember-page','remember-category','tab-cycles-categories']) assert.equal($(`#${id}`).getAttribute('aria-checked'),'true',id);
+  for(const id of ['loop-pages','launch-at-login']) assert.equal($(`#${id}`).getAttribute('aria-checked'),'false',id);
+  $('#dismiss-on-empty-click').click();$('#loop-pages').click();$('#remember-page').click();$('#launch-at-login').click();await tick(35);
+  assert.equal(control.preferences.dismissOnEmptyClick,false);assert.equal(control.preferences.loopPages,true);assert.equal(control.preferences.rememberPage,false);assert.equal(control.preferences.launchAtLogin,true);
+  control.plans.push(()=>({status:500}));$('#dismiss-on-empty-click').click();await tick();assert.equal($('#dismiss-on-empty-click').getAttribute('aria-checked'),'false');
+  $('#tab-cycles-categories').click();await tick();assert.equal(key($('#search'),'Tab').defaultPrevented,false);assert.equal(key($('#search'),'Tab',{ctrlKey:true}).defaultPrevented,true);
+  input('#search','Alpha');key(w.document,'Escape');assert.equal($('#search').value,'');assert.equal(control.closed,0);
+  key(w.document,'Escape');await tick();assert.equal(control.closed,1);
+});
+
+test('shortcut editing validates modifiers, normalizes keys, handles rejection and resets to default',async t=>{
+  const {$,control,event}=await fixture(t);
+  let visibleErrorRequests=0;$('#shortcut-error').scrollIntoView=()=>{visibleErrorRequests++;};
+  const submit=value=>{$('#custom-shortcut').value=value;$('#shortcut-form').dispatchEvent(event('submit'));};
+  submit('Space');await tick();assert.equal($('#shortcut-error').hidden,false);assert.equal(control.saves.length,0);assert.equal(visibleErrorRequests,1);
+  submit('Option+Control+K');await tick(25);assert.equal(control.preferences.shortcut,'Ctrl+Alt+K');assert.equal($('#launchpad-shortcut').textContent,'⌃ ⌥ K');assert.equal($('#shortcut-error').hidden,true);
+  control.plans.push(()=>({status:500}));submit('Cmd+Shift+L');await tick();assert.equal(control.preferences.shortcut,'Ctrl+Alt+K');assert.equal($('#shortcut-error').hidden,false);assert.equal($('#custom-shortcut').value,'Ctrl+Alt+K');assert.equal(visibleErrorRequests,2);
+  $('#reset-shortcut').click();await tick(25);assert.equal(control.preferences.shortcut,'');assert.equal($('#launchpad-shortcut').textContent,'⌃ ⌥ ⇧ Space');assert.equal($('#shortcut-error').hidden,true);
+});
+
+
+test('background dismissal never applies to the management window or its controls',async t=>{
+  const {w,$,control,event,input}=await fixture(t,{preferences:{dismissOnEmptyClick:true,pageMemory:{all:3},lastCategory:'favorites'}});
+  $('#apps-scroll').dispatchEvent(new w.MouseEvent('click',{bubbles:true}));w.document.body.click();assert.equal(control.closed,0);
+  $('#sidebar-settings').click();assert.equal($('#settings-dialog').open,true);assert.equal(control.closed,0);
+  $('#loop-pages').click();await tick();assert.deepEqual(control.preferences.pageMemory,{all:3});assert.equal(control.preferences.lastCategory,'favorites');
+  $('#settings-dialog [data-dialog-close]').click();await tick();assert.equal(control.closed,0);
+});
+
+
+test('queued saves carry the latest confirmed baseline and preserve concurrent native app changes',async t=>{
+  const {$,control,input}=await fixture(t,{mergeBaseline:true});
+  const gate=deferred();control.plans.push(async()=>{await gate.promise;});
+  input('#icon-size','96');$('#loop-pages').click();
+  control.preferences.favorites=['alpha'];control.preferences.hidden=['delta','beta'];
+  gate.resolve();await tick(40);
+  assert.equal(control.saves.length,2);assert.deepEqual(control.baselines[0].favorites,[]);assert.deepEqual(control.baselines[1].favorites,['alpha']);
+  assert.equal(control.baselines[0].iconSize,80);assert.equal(control.baselines[1].iconSize,96);
+  assert.deepEqual(control.preferences.favorites,['alpha']);assert.deepEqual(control.preferences.hidden,['delta','beta']);assert.equal(control.preferences.iconSize,96);assert.equal(control.preferences.loopPages,true);
+  assert.equal($('[data-id="beta"]'),null);assert.ok($('[data-id="alpha"] .tile-favorite'));
+});
+
+test('explicit refresh adopts clean native preferences while an overlapping save keeps its own baseline',async t=>{
+  const {$,control,input}=await fixture(t);
+  control.preferences.favorites=['alpha'];control.preferences.pageMemory={all:4};
+  $('#refresh-button').click();await tick();input('#icon-size','96');await tick();
+  assert.deepEqual(control.baselines[0].favorites,['alpha']);assert.deepEqual(control.baselines[0].pageMemory,{all:4});
+  const refreshGate=deferred(), saveGate=deferred();
+  control.refreshPlans.push(async()=>{await refreshGate.promise;return {apps,preferences:{...structuredClone(control.preferences),favorites:[]}};});
+  $('#refresh-button').click();await tick();control.plans.push(async()=>{await saveGate.promise;});input('#icon-size','104');
+  refreshGate.resolve();await tick();assert.equal($('#icon-size').value,'104');
+  saveGate.resolve();await tick();assert.equal(control.preferences.iconSize,104);assert.deepEqual(control.preferences.favorites,['alpha']);
+});
+
+
+test('optional recent section follows usage order without exposing hidden apps or becoming editable',async t=>{
+  const {$,control,ids}=await fixture(t,{preferences:{recent:['alpha','delta','gamma'],showRecentApps:false,showCategoryFolders:false}});
+  assert.equal($('[data-view="recent"]'),null);assert.equal($('#show-recent-apps').getAttribute('aria-checked'),'false');assert.equal($('#show-category-folders').getAttribute('aria-checked'),'false');
+  $('#show-recent-apps').click();await tick();assert.ok($('[data-view="recent"]'));$('[data-view="recent"]').click();assert.deepEqual(ids(),['alpha','gamma']);assert.equal($('#edit-category-apps').hidden,true);
+  $('#edit-categories').click();assert.equal($('[data-category-row="recent"]'),null);
+  $('#categories-dialog [data-dialog-close]').click();await tick();$('#show-category-folders').click();await tick();assert.equal(control.preferences.showCategoryFolders,true);assert.equal(control.preferences.categories.some(category=>category.id==='recent'),false);
+  $('#show-recent-apps').click();await tick();assert.equal($('[data-view="recent"]'),null);assert.equal(control.preferences.showRecentApps,false);assert.deepEqual(control.preferences.recent,['alpha','delta','gamma']);
+});
+
+test('suggested section preview applies only selected groups and preserves manual memberships',async t=>{
+  const suggestions=[custom('suggested-development','开发',['gamma','alpha']),custom('suggested-utilities','工具',['beta'])];
+  const {$,control,event}=await fixture(t,{suggestions,preferences:{categories:[...builtins(),custom('work','工作',['alpha'])]}});
+  $('#edit-categories').click();$('#suggest-categories').click();await tick(20);
+  assert.equal($('#category-suggestions-dialog').open,true);assert.equal(control.saves.length,0);assert.equal($('#suggestions-list').textContent.includes('2 个应用'),true);assert.equal($('#suggestions-list').textContent.includes('Gamma, Alpha'),true);
+  const utility=$('[data-suggestion="suggested-utilities"]');utility.checked=false;utility.dispatchEvent(event('change'));
+  assert.equal($('#suggestions-count').textContent,'已选 1');$('#apply-suggestions').click();await tick(25);
+  assert.equal($('#category-suggestions-dialog').open,false);assert.deepEqual(control.preferences.categories.find(category=>category.id==='work').appIds,['alpha']);assert.deepEqual(control.preferences.categories.find(category=>category.id==='suggested-development').appIds,['gamma','alpha']);assert.equal(control.preferences.categories.some(category=>category.id==='suggested-utilities'),false);
+  $('#edit-categories').click();assert.ok($('[data-category-row="suggested-development"] [data-category-action="rename"]'));assert.ok($('[data-category-row="suggested-development"] [data-category-action="delete"]'));
+});
+
+test('suggested sections handle empty metadata, load failure and save failure without losing the draft',async t=>{
+  const {$,control}=await fixture(t);
+  $('#edit-categories').click();$('#suggest-categories').click();await tick(20);
+  assert.equal($('#suggestions-status').textContent,'应用的类别信息中暂无可添加的新分组。');assert.equal($('#apply-suggestions').disabled,true);assert.equal(control.saves.length,0);
+  $('#category-suggestions-dialog [data-dialog-close]').click();await tick();
+  control.suggestionPlans.push(()=>({status:500}));$('#edit-categories').click();$('#suggest-categories').click();await tick(20);assert.equal($('#suggestions-error').hidden,false);assert.equal($('#retry-suggestions').hidden,false);
+  control.suggestionPlans.push(()=>({categories:[custom('suggested-utilities','工具',['gamma','beta'])]}));$('#retry-suggestions').click();await tick();assert.equal($('#suggestions-error').hidden,true);assert.ok($('[data-suggestion="suggested-utilities"]').checked);
+  control.plans.push(()=>({status:500}));$('#apply-suggestions').click();await tick();assert.equal($('#category-suggestions-dialog').open,true);assert.equal($('#suggestions-error').hidden,false);assert.ok($('[data-suggestion="suggested-utilities"]').checked);
+  $('#apply-suggestions').click();await tick(20);assert.equal($('#category-suggestions-dialog').open,false);assert.deepEqual(control.preferences.categories.find(category=>category.id==='suggested-utilities').appIds,['gamma','beta']);
+});
+
+
+test('suggestion preview enforces the category limit without replacing existing sections',async t=>{
+  const categories=[...builtins(),...Array.from({length:63},(_,index)=>custom(`manual-${index}`,`Manual ${index}`,['alpha']))];
+  const {$,control,event}=await fixture(t,{preferences:{categories},suggestions:[custom('suggested-development','Development',['gamma','alpha']),custom('suggested-utilities','Utilities',['gamma','beta'])]});
+  $('#edit-categories').click();$('#suggest-categories').click();await tick(20);
+  const second=$('[data-suggestion="suggested-utilities"]');assert.equal(second.checked,false);second.checked=true;second.dispatchEvent(event('change'));
+  assert.equal($('#apply-suggestions').disabled,true);assert.equal($('#suggestions-error').hidden,false);assert.equal($('#retry-suggestions').hidden,true);assert.equal(control.saves.length,0);
+  const first=$('[data-suggestion="suggested-development"]');first.checked=false;first.dispatchEvent(event('change'));assert.equal($('#apply-suggestions').disabled,false);$('#apply-suggestions').click();await tick(20);
+  assert.equal(control.preferences.categories.filter(category=>!['all','favorites','system','hidden'].includes(category.id)).length,64);assert.ok(control.preferences.categories.find(category=>category.id==='manual-0'));assert.ok(control.preferences.categories.find(category=>category.id==='suggested-utilities'));
+});
+
+
+test('suggestion checkbox focus survives selection and unrelated preference rerenders',async t=>{
+  const {w,$,control,event,input}=await fixture(t,{suggestions:[custom('suggested-development','Development',['gamma','alpha']),custom('suggested-utilities','Utilities',['gamma','beta'])]});
+  $('#edit-categories').click();$('#suggest-categories').click();await tick(20);
+  const checkbox=$('[data-suggestion="suggested-development"]');checkbox.focus();checkbox.checked=false;checkbox.dispatchEvent(event('change'));
+  assert.equal(w.document.activeElement.dataset.suggestion,'suggested-development');assert.equal(w.document.activeElement.checked,false);
+  input('#icon-size','96');await tick();assert.equal(w.document.activeElement.dataset.suggestion,'suggested-development');assert.equal(w.document.activeElement.checked,false);assert.equal(control.preferences.iconSize,96);
 });

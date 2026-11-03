@@ -32,7 +32,7 @@
     </section>
     <section class="apps-scroll" id="apps-scroll" role="tabpanel" data-i18n-aria-label="web.appList" tabindex="-1"><div class="app-grid" id="app-grid" role="list"></div><div class="empty-state" id="empty-state" hidden></div></section>
     <footer class="workspace-footer">
-      <div class="footer-meta"><span id="collection-count" class="collection-count" aria-live="polite" data-i18n="web.loading"></span><span id="category-shortcut" class="keyboard-hint"><kbd>Tab</kbd> <span data-i18n="web.cycleCategories"></span></span></div>
+      <div class="footer-meta"><span id="search-scope-label" class="search-scope-label" hidden></span><span id="collection-count" class="collection-count" aria-live="polite" data-i18n="web.loading"></span><span id="category-shortcut" class="keyboard-hint"><kbd>Tab</kbd> <span data-i18n="web.cycleCategories"></span></span></div>
       <div class="footer-controls">
         <div class="size-control"><span data-icon="image-small"></span><input id="icon-size" type="range" min="48" max="112" step="8" value="80" data-i18n-aria-label="web.iconSize" /><span data-icon="image-large"></span><output id="icon-size-value">80</output></div>
         <span class="control-divider"></span>
@@ -50,6 +50,23 @@
       <div class="setting-row"><span data-i18n="web.showMenuBarIcon"></span><button id="show-menu-bar-icon" class="visibility-switch" role="switch" aria-checked="false" data-i18n-aria-label="web.showMenuBarIcon"><span></span></button></div>
       <div class="setting-row"><label for="settings-icon-size" data-i18n="web.iconSize"></label><output id="settings-size-value">80 px</output></div>
       <div class="settings-slider"><span data-icon="image-small"></span><input id="settings-icon-size" type="range" min="48" max="112" step="8" value="80" data-i18n-aria-label="web.iconSize" /><span data-icon="image-large"></span></div>
+      <div class="settings-group launcher-settings">
+        <h3 class="settings-section-title" data-i18n="web.launcher.search"></h3>
+        <div class="setting-row"><label for="search-scope" data-i18n="web.launcher.searchScope"></label><select id="search-scope" class="language-select glass-surface glass-control" data-i18n-aria-label="web.launcher.searchScope"><option value="all" data-i18n="web.launcher.scopeAll"></option><option value="current" data-i18n="web.launcher.scopeCurrent"></option></select></div>
+        <div class="setting-row"><label for="search-ranking" data-i18n="web.launcher.searchRanking"></label><select id="search-ranking" class="language-select glass-surface glass-control" data-i18n-aria-label="web.launcher.searchRanking"><option value="relevance" data-i18n="web.launcher.rankRelevance"></option><option value="manual" data-i18n="web.manualOrder"></option></select></div>
+        <h3 class="settings-section-title" data-i18n="web.launcher.collections"></h3>
+        <div class="setting-row"><span data-i18n="web.launcher.showRecentApps"></span><button id="show-recent-apps" class="visibility-switch" role="switch" data-preference="showRecentApps" aria-checked="false" data-i18n-aria-label="web.launcher.showRecentApps"><span></span></button></div>
+        <div class="setting-row"><span data-i18n="web.launcher.showCategoryFolders"></span><button id="show-category-folders" class="visibility-switch" role="switch" data-preference="showCategoryFolders" aria-checked="false" data-i18n-aria-label="web.launcher.showCategoryFolders"><span></span></button></div>
+        <p class="settings-note launcher-settings-note" data-i18n="web.launcher.foldersNote"></p>
+        <h3 class="settings-section-title" data-i18n="web.launcher.behavior"></h3>
+        <div class="setting-row"><span data-i18n="web.launcher.dismissOnEmptyClick"></span><button id="dismiss-on-empty-click" class="visibility-switch" role="switch" data-preference="dismissOnEmptyClick" aria-checked="true" data-i18n-aria-label="web.launcher.dismissOnEmptyClick"><span></span></button></div>
+        <div class="setting-row"><span data-i18n="web.launcher.escapeClearsSearch"></span><button id="escape-clears-search" class="visibility-switch" role="switch" data-preference="escapeClearsSearch" aria-checked="true" data-i18n-aria-label="web.launcher.escapeClearsSearch"><span></span></button></div>
+        <div class="setting-row"><span data-i18n="web.launcher.loopPages"></span><button id="loop-pages" class="visibility-switch" role="switch" data-preference="loopPages" aria-checked="false" data-i18n-aria-label="web.launcher.loopPages"><span></span></button></div>
+        <div class="setting-row"><span data-i18n="web.launcher.rememberCategory"></span><button id="remember-category" class="visibility-switch" role="switch" data-preference="rememberCategory" aria-checked="true" data-i18n-aria-label="web.launcher.rememberCategory"><span></span></button></div>
+        <div class="setting-row"><span data-i18n="web.launcher.rememberPage"></span><button id="remember-page" class="visibility-switch" role="switch" data-preference="rememberPage" aria-checked="true" data-i18n-aria-label="web.launcher.rememberPage"><span></span></button></div>
+        <div class="setting-row"><span data-i18n="web.launcher.tabCyclesCategories"></span><button id="tab-cycles-categories" class="visibility-switch" role="switch" data-preference="tabCyclesCategories" aria-checked="true" data-i18n-aria-label="web.launcher.tabCyclesCategories"><span></span></button></div>
+        <p class="settings-note launcher-settings-note" data-i18n="web.launcher.behaviorNote"></p>
+      </div>
       <div class="settings-group">
         <div class="setting-row"><span data-i18n="web.categories"></span><button class="button glass-surface glass-control" id="settings-categories"><span data-i18n="web.manage"></span><span data-icon="arrow-right"></span></button></div>
         <div class="setting-row"><span><span data-i18n="web.hiddenApps"></span> <span id="hidden-summary" class="value-badge">0</span></span><button class="button glass-surface glass-control" id="manage-hidden"><span data-i18n="web.manage"></span><span data-icon="arrow-right"></span></button></div>
@@ -60,14 +77,29 @@
         <div class="setting-row"><span data-i18n="web.update.automaticChecks"></span><button id="automatic-updates" class="visibility-switch" role="switch" aria-checked="true" data-i18n-aria-label="web.update.automaticChecks"><span></span></button></div>
         <div class="update-actions"><span id="update-status" class="settings-note" role="status" hidden></span><button id="check-updates" class="button glass-surface glass-control" data-i18n="web.update.check"></button></div>
       </div>
-      <div class="setting-row shortcut-row"><span data-i18n="web.showLaunchpad"></span><kbd id="launchpad-shortcut" data-i18n-meta="shortcut"></kbd></div>
+      <div class="settings-group shortcut-settings">
+        <h3 class="settings-section-title" data-i18n="web.launcher.activation"></h3>
+        <div class="setting-row"><span data-i18n="web.launcher.launchAtLogin"></span><button id="launch-at-login" class="visibility-switch" role="switch" data-preference="launchAtLogin" aria-checked="false" data-i18n-aria-label="web.launcher.launchAtLogin"><span></span></button></div>
+        <div class="setting-row shortcut-row"><label for="custom-shortcut" data-i18n="web.showLaunchpad"></label><kbd id="launchpad-shortcut" data-i18n-meta="shortcut"></kbd></div>
+        <form id="shortcut-form" class="shortcut-editor"><input id="custom-shortcut" class="language-select glass-surface glass-control" type="text" autocomplete="off" spellcheck="false" maxlength="80" data-i18n-aria-label="web.launcher.shortcut" data-i18n-placeholder="web.launcher.shortcutPlaceholder"/><button id="save-shortcut" type="submit" class="button glass-surface glass-control" data-i18n="web.save"></button><button id="reset-shortcut" type="button" class="text-button" data-i18n="web.resetDefault"></button></form>
+        <p class="settings-note launcher-settings-note" data-i18n="web.launcher.shortcutHelp"></p>
+        <p id="shortcut-error" class="inline-error" role="alert" hidden></p>
+      </div>
     </div>
     <div class="dialog-footer"><button class="text-button" id="quit-button" data-i18n="web.quit"></button><button class="button done-button glass-surface glass-control" id="settings-done" data-dialog-close data-i18n="web.done"></button></div>
   </dialog>
   <dialog id="categories-dialog" class="settings-dialog categories-dialog glass-surface glass-floating" aria-labelledby="categories-title">
     <div class="dialog-heading"><h2 id="categories-title" data-i18n="web.categories"></h2><button class="icon-button glass-surface glass-quiet" data-dialog-close data-i18n-aria-label="web.closeCategories"><span data-icon="x"></span></button></div>
     <div id="category-list" class="category-list" data-i18n-aria-label="web.categoryArrangement"></div>
-    <div class="dialog-footer"><button id="new-category" class="button glass-surface glass-control"><span data-icon="plus"></span><span data-i18n="web.newCategory"></span></button><button class="button done-button glass-surface glass-control" data-dialog-close data-i18n="web.done"></button></div>
+    <div class="dialog-footer"><div class="category-create-actions"><button id="new-category" class="button glass-surface glass-control"><span data-icon="plus"></span><span data-i18n="web.newCategory"></span></button><button id="suggest-categories" class="button glass-surface glass-control" data-i18n="web.suggestions.open"></button></div><button class="button done-button glass-surface glass-control" data-dialog-close data-i18n="web.done"></button></div>
+  </dialog>
+  <dialog id="category-suggestions-dialog" class="settings-dialog suggestions-dialog glass-surface glass-floating" aria-labelledby="suggestions-title">
+    <div class="dialog-heading"><h2 id="suggestions-title" data-i18n="web.suggestions.title"></h2><button class="icon-button glass-surface glass-quiet" data-dialog-close data-i18n-aria-label="web.suggestions.close"><span data-icon="x"></span></button></div>
+    <p class="suggestions-description settings-note" data-i18n="web.suggestions.description"></p>
+    <p id="suggestions-status" class="suggestions-description settings-note" role="status" hidden></p>
+    <div id="suggestions-list" class="suggestions-list"></div>
+    <p id="suggestions-error" class="inline-error suggestions-description" role="alert" hidden></p>
+    <div class="dialog-footer"><button id="retry-suggestions" class="text-button" data-i18n="web.retryLoad" hidden></button><span id="suggestions-count" class="picker-selection-count"></span><button id="apply-suggestions" class="button done-button glass-surface glass-control" data-i18n="web.suggestions.apply" disabled></button></div>
   </dialog>
   <dialog id="category-name-dialog" class="settings-dialog name-dialog glass-surface glass-floating" aria-labelledby="category-name-title">
     <form id="category-name-form">

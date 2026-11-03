@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/knothhe/gopad/internal/appsearch"
 	"github.com/knothhe/gopad/internal/i18n"
@@ -33,6 +34,7 @@ type Controls struct {
 	Quit               func()
 	SystemLocale       func() string
 	PreferencesChanged func(launcher.Preferences)
+	PreparePreferences func(launcher.Preferences, launcher.Preferences) (func(bool), error)
 	UpdateStatus       func() UpdateState
 	CheckUpdates       func()
 	SetAutomaticChecks func(bool) error
@@ -43,9 +45,10 @@ type Controls struct {
 }
 
 type server struct {
-	catalog  Catalog
-	controls Controls
-	static   http.Handler
+	catalog       Catalog
+	controls      Controls
+	static        http.Handler
+	preferencesMu sync.Mutex
 }
 
 func New(catalog Catalog, frontend fs.FS, assets fs.FS, controls Controls) http.Handler {
@@ -56,6 +59,7 @@ func New(catalog Catalog, frontend fs.FS, assets fs.FS, controls Controls) http.
 	mux.HandleFunc("/api/state", s.state)
 	mux.HandleFunc("/api/refresh", s.refresh)
 	mux.HandleFunc("/api/preferences", s.preferences)
+	mux.HandleFunc("/api/category-suggestions", s.categorySuggestions)
 	mux.HandleFunc("/api/i18n", s.translations)
 	mux.HandleFunc("/api/update", s.updateState)
 	mux.HandleFunc("/api/update/check", s.checkUpdates)
@@ -140,6 +144,9 @@ func stateResult(w http.ResponseWriter, state launcher.State, err error) {
 	for _, category := range state.Preferences.Categories {
 		texts = append(texts, category.Name)
 	}
+	for _, alias := range state.Preferences.Aliases {
+		texts = append(texts, alias)
+	}
 	result(w, struct {
 		launcher.State
 		Pinyin map[string][]string `json:"pinyin"`
@@ -165,6 +172,22 @@ func (s *server) state(w http.ResponseWriter, r *http.Request) {
 	v, e := s.catalog.State()
 	stateResult(w, v, e)
 }
+
+func (s *server) categorySuggestions(w http.ResponseWriter, r *http.Request) {
+	if !method(w, r, http.MethodGet) {
+		return
+	}
+	state, err := s.catalog.State()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	system := i18n.EnvironmentLocale()
+	if s.controls.SystemLocale != nil {
+		system = s.controls.SystemLocale()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"categories": launcher.SuggestedCategoriesForLocale(state, i18n.Resolve(state.Preferences.Language, system))})
+}
 func (s *server) refresh(w http.ResponseWriter, r *http.Request) {
 	if !method(w, r, http.MethodPost) {
 		return
@@ -179,18 +202,54 @@ func (s *server) preferences(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, errors.New("error.method"))
 		return
 	}
-	var p launcher.Preferences
-	if !decode(w, r, &p) {
+	var body struct {
+		launcher.Preferences
+		BasePreferences *launcher.Preferences `json:"basePreferences,omitempty"`
+	}
+	if !decode(w, r, &body) {
 		return
+	}
+	p := body.Preferences
+	shortcut, err := launcher.NormalizeShortcut(p.Shortcut)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	p.Shortcut = shortcut
+	s.preferencesMu.Lock()
+	defer s.preferencesMu.Unlock()
+	var finish func(bool)
+	if s.controls.PreparePreferences != nil {
+		previous, err := s.catalog.State()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		candidate := p
+		if body.BasePreferences != nil {
+			candidate = launcher.MergeManagementPreferences(previous.Preferences, p, *body.BasePreferences)
+		}
+		finish, err = s.controls.PreparePreferences(previous.Preferences, candidate)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
 	}
 	var v launcher.State
 	var e error
-	if managed, ok := s.catalog.(interface {
+	if merged, ok := s.catalog.(interface {
+		SaveManagementPreferencesWithBase(launcher.Preferences, launcher.Preferences) (launcher.State, error)
+	}); ok && body.BasePreferences != nil {
+		v, e = merged.SaveManagementPreferencesWithBase(p, *body.BasePreferences)
+	} else if managed, ok := s.catalog.(interface {
 		SaveManagementPreferences(launcher.Preferences) (launcher.State, error)
 	}); ok {
 		v, e = managed.SaveManagementPreferences(p)
 	} else {
 		v, e = s.catalog.SavePreferences(p)
+	}
+	if finish != nil {
+		finish(e == nil)
 	}
 	if e == nil && s.controls.PreferencesChanged != nil {
 		s.controls.PreferencesChanged(v.Preferences)

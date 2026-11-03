@@ -5,6 +5,8 @@ package launcher
 import (
 	"errors"
 	"math"
+	"os"
+	"time"
 
 	"github.com/ebitengine/purego/objc"
 )
@@ -15,12 +17,36 @@ import (
 // no screen capture permission, and handles HEIC through NSImage. Dynamic/video
 // wallpapers without an available still image return an error so the view can
 // keep its gradient background.
-func Wallpaper() ([]byte, error) {
+func Wallpaper() ([]byte, error) { return WallpaperForDisplay(0) }
+
+var wallpaperCache = map[int64]struct {
+	path     string
+	modified time.Time
+	size     int64
+	png      []byte
+}{}
+
+// WallpaperForDisplay uses NSScreenNumber, the same display ID supplied by
+// Screen.DisplayNearestPoint. Query it on the UI thread at every activation;
+// reuse rendered pixels until the wallpaper file or selected Space changes.
+func WallpaperForDisplay(displayID int64) ([]byte, error) {
 	imageMu.Lock()
 	defer imageMu.Unlock()
 	var png []byte
 	err := withCocoa(func() {
 		screen := message(class("NSScreen"), "mainScreen")
+		if displayID != 0 {
+			screens := message(class("NSScreen"), "screens")
+			for i, count := uintptr(0), message(screens, "count"); i < uintptr(count); i++ {
+				candidate := message(screens, "objectAtIndex:", i)
+				description := message(candidate, "deviceDescription")
+				number := message(description, "objectForKey:", nsString("NSScreenNumber"))
+				if int64(message(number, "longLongValue")) == displayID {
+					screen = candidate
+					break
+				}
+			}
+		}
 		if screen == 0 {
 			return
 		}
@@ -28,6 +54,15 @@ func Wallpaper() ([]byte, error) {
 		url := message(workspace, "desktopImageURLForScreen:", screen)
 		if url == 0 || message(url, "isFileURL") == 0 {
 			return
+		}
+		path := goString(message(url, "path"))
+		info, statErr := os.Stat(path)
+		if statErr == nil {
+			cached := wallpaperCache[displayID]
+			if cached.path == path && cached.modified.Equal(info.ModTime()) && cached.size == info.Size() {
+				png = cached.png
+				return
+			}
 		}
 		image := message(message(class("NSImage"), "alloc"), "initWithContentsOfURL:", url)
 		if image == 0 {
@@ -47,6 +82,14 @@ func Wallpaper() ([]byte, error) {
 		width := max(1, int(math.Round(size.Width*scale)))
 		height := max(1, int(math.Round(size.Height*scale)))
 		png = renderImagePNG(image, width, height)
+		if statErr == nil && len(png) > 0 {
+			wallpaperCache[displayID] = struct {
+				path     string
+				modified time.Time
+				size     int64
+				png      []byte
+			}{path, info.ModTime(), info.Size(), png}
+		}
 	})
 	if err != nil {
 		return nil, err

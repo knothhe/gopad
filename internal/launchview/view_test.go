@@ -29,7 +29,7 @@ func (f *fixtureCatalog) Refresh() (launcher.State, error) { return f.state, nil
 func (f *fixtureCatalog) Icon(string) ([]byte, error)      { return nil, fmt.Errorf("no fixture icon") }
 func (f *fixtureCatalog) Launch(id string) error           { f.launched <- id; return nil }
 func fixture(count int) *fixtureCatalog {
-	f := &fixtureCatalog{launched: make(chan string, 4), state: launcher.State{Preferences: launcher.Preferences{IconSize: 80}}}
+	f := &fixtureCatalog{launched: make(chan string, 4), state: launcher.State{Preferences: launcher.Preferences{IconSize: 80, LoopPages: true, RememberCategory: true, TabCyclesCategories: true}}}
 	for i := 0; i < count; i++ {
 		f.state.Apps = append(f.state.Apps, launcher.App{ID: fmt.Sprintf("app-%03d", i), Name: fmt.Sprintf("工具 %03d", i), Path: fmt.Sprintf("/Applications/Tool%d.app", i), BundleID: fmt.Sprintf("dev.gopad.tool%d", i)})
 	}

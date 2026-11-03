@@ -51,6 +51,9 @@ func VisibleCategories(p Preferences) []Category {
 			visible = append(visible, category)
 		}
 	}
+	if p.ShowRecentApps {
+		visible = append(visible, Category{ID: "recent", Name: i18n.T(i18n.Resolve(p.Language, i18n.EnvironmentLocale()), "category.recent"), AppIDs: []string{}, Visible: true})
+	}
 	return visible
 }
 
@@ -73,6 +76,8 @@ func CategoryContains(category Category, app App, p Preferences) bool {
 		return true
 	case "favorites":
 		return slices.Contains(p.Favorites, app.ID)
+	case "recent":
+		return slices.Contains(p.Recent, app.ID)
 	case "system":
 		return app.Kind == "system" || strings.HasPrefix(app.Path, "/System/")
 	default:
@@ -91,7 +96,7 @@ func normalizeCategories(input []Category) []Category {
 	customCount := 0
 	for _, category := range input {
 		category.ID = strings.TrimSpace(category.ID)
-		if !validCategoryID(category.ID) || seen[category.ID] {
+		if !validCategoryID(category.ID) || seen[category.ID] || category.ID == "recent" {
 			continue
 		}
 		if builtin, ok := builtins[category.ID]; ok {

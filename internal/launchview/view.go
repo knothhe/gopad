@@ -4,6 +4,7 @@
 package launchview
 
 import (
+	"bytes"
 	"fmt"
 	"sort"
 	"strings"
@@ -80,6 +81,8 @@ type Launchpad struct {
 	filtered              []launcher.App
 	lastWheel             time.Time
 	scroll                pageScroll
+	actions               appActionState
+	behavior              launchBehavior
 }
 
 func New(catalog Catalog, callbacks Callbacks) *Launchpad {
@@ -97,8 +100,17 @@ func New(catalog Catalog, callbacks Callbacks) *Launchpad {
 	return v
 }
 
-func (v *Launchpad) Close() { v.closeOnce.Do(func() { close(v.stop) }); <-v.saveDone }
+func (v *Launchpad) Close() {
+	v.closeOnce.Do(func() { close(v.stop) })
+	<-v.saveDone
+	v.waitAppActions()
+}
 func (v *Launchpad) invalidate() {
+	select {
+	case <-v.stop:
+		return
+	default:
+	}
 	if v.callbacks.Invalidate != nil {
 		v.callbacks.Invalidate()
 	}
@@ -112,7 +124,15 @@ func (v *Launchpad) Reload() {
 	generation := v.generation
 	v.mu.Unlock()
 	go func() {
-		state, err := v.catalog.Refresh()
+		var state launcher.State
+		var err error
+		if cached, ok := v.catalog.(interface {
+			RefreshIfStale() (launcher.State, error)
+		}); ok {
+			state, err = cached.RefreshIfStale()
+		} else {
+			state, err = v.catalog.Refresh()
+		}
 		v.mu.Lock()
 		if generation == v.generation {
 			if err != nil {
@@ -154,20 +174,31 @@ func (v *Launchpad) Reload() {
 
 // ResetSearch is called on the UI thread each time the launchpad is opened.
 func (v *Launchpad) ResetSearch() {
+	v.rememberCurrentPage()
 	v.query = ""
-	v.page = 0
+	v.behavior.searching = false
+	state, _, _ := v.snapshot()
+	if !state.Preferences.RememberCategory {
+		v.category = "all"
+	}
+	v.page = v.savedPage(v.category)
 	v.selected = -1
 	v.focus = "search"
 	v.slideReset = true
 }
 func (v *Launchpad) SetWallpaper(data []byte) error {
+	if bytes.Equal(data, v.behavior.wallpaperData) {
+		return nil
+	}
 	bitmap, err := ui.DecodeBitmap(data)
 	if err != nil {
 		return err
 	}
 	v.wallpaper = bitmap
+	v.behavior.wallpaperData = append(v.behavior.wallpaperData[:0], data...)
 	return nil
 }
+func (v *Launchpad) ClearWallpaper() { v.wallpaper = nil; v.behavior.wallpaperData = nil }
 func (v *Launchpad) locale() string {
 	if v.callbacks.Locale == nil {
 		return "zh-CN"
@@ -248,17 +279,43 @@ func appsForCategory(state launcher.State, query string, category launcher.Categ
 	for i, id := range state.Preferences.Order {
 		rank[id] = i
 	}
+	recent := make(map[string]int, len(state.Preferences.Recent))
+	for i, id := range state.Preferences.Recent {
+		recent[id] = i
+	}
 	apps := make([]launcher.App, 0, len(state.Apps))
+	scores := make(map[string]int)
 	for _, app := range state.Apps {
 		if !launcher.CategoryContains(category, app, state.Preferences) {
 			continue
 		}
-		if !appsearch.Match(app.Name+" "+app.BundleID+" "+app.Path, query) {
+		score := appsearch.Score(app.Name, query)
+		if alias := state.Preferences.Aliases[app.ID]; alias != "" {
+			score = max(score, appsearch.Score(alias, query))
+		}
+		if score == 0 && appsearch.Match(app.BundleID+" "+app.Path, query) {
+			score = 100
+		}
+		if query != "" && score == 0 {
 			continue
 		}
+		scores[app.ID] = score
 		apps = append(apps, app)
 	}
 	sort.SliceStable(apps, func(i, j int) bool {
+		if query != "" && state.Preferences.SearchRanking != "manual" && scores[apps[i].ID] != scores[apps[j].ID] {
+			return scores[apps[i].ID] > scores[apps[j].ID]
+		}
+		if category.ID == "recent" || query != "" && state.Preferences.ShowRecentApps && state.Preferences.SearchRanking != "manual" {
+			a, aOK := recent[apps[i].ID]
+			b, bOK := recent[apps[j].ID]
+			if aOK != bOK {
+				return aOK
+			}
+			if aOK && a != b {
+				return a < b
+			}
+		}
 		a, aOK := rank[apps[i].ID]
 		b, bOK := rank[apps[j].ID]
 		if aOK != bOK {
@@ -321,12 +378,14 @@ func (v *Launchpad) selectCategoryDirection(id string, direction int) {
 	}
 	for _, category := range v.categories {
 		if category.ID == id {
+			v.rememberCurrentPage()
 			v.category = id
 			v.categoryDirection = direction
 			v.categoryRestored = true
 			v.rememberCategory(id)
 			v.query = ""
-			v.page = 0
+			v.behavior.searching = false
+			v.page = v.savedPage(id)
 			v.selected = -1
 			v.focus = "search"
 			return
@@ -338,6 +397,10 @@ func (v *Launchpad) restoreCategory(saved string, loaded bool) {
 		return
 	}
 	candidate := saved
+	state, _, _ := v.snapshot()
+	if !state.Preferences.RememberCategory {
+		candidate = "all"
+	}
 	if candidate == "" {
 		candidate = "all"
 	}
@@ -396,13 +459,21 @@ func (v *Launchpad) currentCategory() launcher.Category {
 
 func (v *Launchpad) changePage(page int) {
 	count := max(1, v.pageCount)
-	if page != v.page {
-		v.pageDirection = 1
-		if page < v.page {
-			v.pageDirection = -1
-		}
+	direction := 1
+	if page < v.page {
+		direction = -1
 	}
-	v.page = (page%count + count) % count
+	state, _, _ := v.snapshot()
+	if state.Preferences.LoopPages {
+		page = (page%count + count) % count
+	} else {
+		page = max(0, min(page, count-1))
+	}
+	if page != v.page {
+		v.pageDirection = direction
+	}
+	v.page = page
+	v.rememberCurrentPage()
 	v.selected = -1
 	v.focus = "search"
 }
@@ -431,9 +502,13 @@ func (v *Launchpad) moveSelection(delta int) {
 	index = max(0, min(len(v.filtered)-1, index))
 	v.selected = index
 	v.page = index / v.pageSize
+	v.rememberCurrentPage()
 	v.focus = v.filtered[index].ID
 }
 func (v *Launchpad) launch(app launcher.App) {
+	if v.openFolder(app) {
+		return
+	}
 	v.mu.Lock()
 	if v.busy {
 		v.mu.Unlock()
@@ -467,6 +542,11 @@ func (v *Launchpad) activateSelection() {
 	v.launch(v.filtered[index])
 }
 func (v *Launchpad) escape() {
+	state, _, _ := v.snapshot()
+	if state.Preferences.EscapeClearsSearch && v.query != "" {
+		v.clearSearch()
+		return
+	}
 	if v.callbacks.Hide != nil {
 		v.callbacks.Hide()
 	}
@@ -485,9 +565,15 @@ func (v *Launchpad) View(c *ui.Context) {
 	v.categories = launcher.VisibleCategories(state.Preferences)
 	v.restoreCategory(state.Preferences.LastCategory, loaded)
 	v.ensureCategory(v.categories)
-	v.filtered = appsForCategory(state, v.query, v.currentCategory())
+	v.restorePages(state, loaded)
+	v.filtered = folderApps(state, appsForCategory(state, v.query, v.searchCategory(state.Preferences)), v.query, v.currentCategory())
+	queryAtStart := v.query
+	categoryAtStart := v.category
 	v.pageCount = max(1, (len(v.filtered)+v.pageSize-1)/v.pageSize)
 	v.page = max(0, min(v.page, v.pageCount-1))
+	if v.query == "" {
+		v.behavior.browsePage = v.page
+	}
 	if v.selected >= len(v.filtered) {
 		v.selected = -1
 		v.focus = "search"
@@ -497,6 +583,15 @@ func (v *Launchpad) View(c *ui.Context) {
 	}
 	if c.Shortcut(ui.Cmd, ui.KeyF) {
 		v.focus = "search"
+	}
+	if (v.focus != "search" || v.query == "") && v.hasHiddenUndo() && c.Shortcut(ui.Cmd, ui.KeyZ) {
+		v.undoHidden()
+	}
+	if c.Shortcut(ui.Cmd, ui.KeyLeft) {
+		v.changePage(v.page - 1)
+	}
+	if c.Shortcut(ui.Cmd, ui.KeyRight) {
+		v.changePage(v.page + 1)
 	}
 	if !v.composing && c.Shortcut(0, ui.KeyEscape) {
 		v.escape()
@@ -522,9 +617,21 @@ func (v *Launchpad) View(c *ui.Context) {
 	if c.Shortcut(0, ui.KeyEnter) {
 		v.activateSelection()
 	}
+	if v.query != queryAtStart || v.category != categoryAtStart {
+		v.filtered = folderApps(state, appsForCategory(state, v.query, v.searchCategory(state.Preferences)), v.query, v.currentCategory())
+		v.pageCount = max(1, (len(v.filtered)+v.pageSize-1)/v.pageSize)
+		v.page = max(0, min(v.page, v.pageCount-1))
+	}
 	root := ui.Box(c).Fill().Clip().HandleInput(func(ev ui.InputEvent) bool {
 		return v.handlePageScroll(ev, ev.Time)
 	})
+	if state.Preferences.DismissOnEmptyClick {
+		root.OnClick(func() {
+			if !v.slides.dragging && v.callbacks.Hide != nil {
+				v.callbacks.Hide()
+			}
+		})
+	}
 	frames := v.slideFrames(c, width, height, size, loaded)
 	root.Children(func() {
 		ui.Box(c).Fill().LinearGradient(ui.LinearGradient{From: ui.Hex("#34436e"), To: ui.Hex("#233f43"), Angle: 135})
@@ -537,10 +644,11 @@ func (v *Launchpad) View(c *ui.Context) {
 		ui.Box(c).Absolute().Top(0).Left(0).Size(width, height).Background(ui.RGBA(0, 0, 0, .28)).PassThrough()
 		categoryArea := ui.Box(c.Key("category-area")).Absolute().Top(0).Left(0).Size(width, height).PassThrough()
 		categoryArea.Children(func() {
-			uikit.Pill(c, 320, 44, uikit.Regular).Absolute().Top(42).Left((width-320)/2).Padding(0, 15).Gap(10).AlignItems(ui.Center).Children(func() {
+			v.renderFolderBack(c, state)
+			uikit.Pill(c, 320, 44, uikit.Regular).Absolute().Top(42).Left((width-320)/2).Padding(0, 15).Gap(10).AlignItems(ui.Center).OnClick(func() { v.focus = "search" }).Children(func() {
 				ui.Icon(c, searchIcon).Size(16, 16).TextColor(ui.RGBA(255, 255, 255, .7))
 				input := ui.TextInputBase(c.Key("search"), &v.query).Grow(1).MinWidth(0).Height(28).FontSize(14).Placeholder(v.t("native.search")).Label(v.t("native.search")).FocusBind(&v.focus, "search").AutoFocus().OnTextKey(func(k ui.TextKey) bool {
-					if k.Key == ui.KeyTab && (k.Mods == 0 || k.Mods == ui.Shift) {
+					if state.Preferences.TabCyclesCategories && k.Key == ui.KeyTab && (k.Mods == 0 || k.Mods == ui.Shift) {
 						if v.composing {
 							return true
 						}
@@ -569,31 +677,40 @@ func (v *Launchpad) View(c *ui.Context) {
 					return false
 				})
 				v.composing = input.Composing()
-				input.OnChange(func() { v.page = 0; v.selected = -1 }).OnSubmit(v.activateSelection)
+				input.OnChange(v.queryChanged).OnSubmit(v.activateSelection)
 				if v.query != "" {
-					ui.ButtonBase(c.Key("clear-search")).Size(20, 20).Center().Radius(10).Label(v.t("native.clearSearch")).Children(func() { ui.Icon(c, closeIcon).Size(11, 11) }).OnClick(func() { v.query = ""; v.page = 0; v.selected = -1; v.focus = "search" })
+					ui.ButtonBase(c.Key("clear-search")).Size(20, 20).Center().Radius(10).Label(v.t("native.clearSearch")).Children(func() { ui.Icon(c, closeIcon).Size(11, 11) }).OnClick(v.clearSearch)
 				}
 			})
+			if v.query != "" {
+				key := "native.searchScope.all"
+				if state.Preferences.SearchScope == "current" || v.category == "hidden" {
+					key = "native.searchScope.current"
+				}
+				ui.Text(c, v.t(key)).Absolute().Top(95).Left((width - 320) / 2).Width(320).TextAlign(ui.Center).FontSize(11).TextColor(ui.RGBA(255, 255, 255, .65))
+			}
 			if len(v.categories) > 1 {
 				tabs := make([]uikit.Tab, 0, len(v.categories))
 				for _, category := range v.categories {
 					label := category.Name
 					switch category.ID {
-					case "all", "favorites", "system", "hidden":
+					case "all", "favorites", "system", "hidden", "recent":
 						label = v.t("category." + category.ID)
 					}
 					tabs = append(tabs, uikit.Tab{ID: category.ID, Label: label, AccessibleLabel: v.t("native.ui.category", "name", label)})
 				}
 				tabX, tabY, tabMaxWidth := categoryGeometry(geometry, size)
-				uikit.Tabs(c.Key("categories"), tabs, v.category, tabMaxWidth, v.selectCategory, uikit.TabsLabels{Group: v.t("native.ui.categories"), Previous: v.t("native.ui.previousCategory"), Next: v.t("native.ui.nextCategory")}).Absolute().Top(tabY).Left(tabX)
+				uikit.Tabs(c.Key("categories"), tabs, v.category, tabMaxWidth, v.selectCategory, uikit.TabsLabels{Group: v.t("native.ui.categories"), Previous: v.t("native.ui.previousCategory"), Next: v.t("native.ui.nextCategory")}, v.categoryDropTarget).Absolute().Top(tabY).Left(tabX).OnClick(func() {})
 			}
 			for _, frame := range frames {
 				v.renderScene(c, frame, geometry, width, height, size)
 			}
 		})
 		if !v.composing && len(v.categories) > 1 {
-			categoryArea.OnShortcut(0, ui.KeyTab, func() { v.cycleCategory(1) })
-			categoryArea.OnShortcut(ui.Shift, ui.KeyTab, func() { v.cycleCategory(-1) })
+			if state.Preferences.TabCyclesCategories {
+				categoryArea.OnShortcut(0, ui.KeyTab, func() { v.cycleCategory(1) })
+				categoryArea.OnShortcut(ui.Shift, ui.KeyTab, func() { v.cycleCategory(-1) })
+			}
 			categoryArea.OnShortcut(ui.Ctrl, ui.KeyTab, func() { v.cycleCategory(1) })
 			categoryArea.OnShortcut(ui.Ctrl|ui.Shift, ui.KeyTab, func() { v.cycleCategory(-1) })
 		}
@@ -601,8 +718,8 @@ func (v *Launchpad) View(c *ui.Context) {
 		visiblePages := min(7, v.pageCount)
 		pagerStart := max(0, min(v.page-visiblePages/2, v.pageCount-visiblePages))
 		pagerWidth := float32(80 + visiblePages*19)
-		uikit.Pill(c, pagerWidth, 34, uikit.Clear).Absolute().Bottom(36).Left((width-pagerWidth)/2).Padding(0, 9).Gap(3).AlignItems(ui.Center).Justify(ui.Center).Children(func() {
-			ui.ButtonBase(c.Key("previous-page")).Size(24, 26).Center().Radius(12).Label(v.t("native.previousPage")).Disabled(v.pageCount <= 1).Children(func() { ui.Icon(c, leftIcon).Size(13, 13) }).OnClick(func() { v.changePage(v.page - 1) })
+		uikit.Pill(c, pagerWidth, 34, uikit.Clear).Absolute().Bottom(36).Left((width-pagerWidth)/2).Padding(0, 9).Gap(3).AlignItems(ui.Center).Justify(ui.Center).OnClick(func() {}).Children(func() {
+			ui.ButtonBase(c.Key("previous-page")).Size(24, 26).Center().Radius(12).Label(v.t("native.previousPage")).Disabled(v.pageCount <= 1 || !state.Preferences.LoopPages && v.page == 0).Children(func() { ui.Icon(c, leftIcon).Size(13, 13) }).OnClick(func() { v.changePage(v.page - 1) })
 			for page := pagerStart; page < pagerStart+visiblePages; page++ {
 				target := page
 				ui.ButtonBase(c.Key(fmt.Sprintf("page-%d", page))).Size(16, 24).Center().Label(v.t("native.page", "number", fmt.Sprint(page+1))).Children(func() {
@@ -614,7 +731,7 @@ func (v *Launchpad) View(c *ui.Context) {
 					dot.Background(dot.AnimateColor("active", color, ui.Animation{Duration: 160 * time.Millisecond}))
 				}).OnClick(func() { v.changePage(target) })
 			}
-			ui.ButtonBase(c.Key("next-page")).Size(24, 26).Center().Radius(12).Label(v.t("native.nextPage")).Disabled(v.pageCount <= 1).Children(func() { ui.Icon(c, rightIcon).Size(13, 13) }).OnClick(func() { v.changePage(v.page + 1) })
+			ui.ButtonBase(c.Key("next-page")).Size(24, 26).Center().Radius(12).Label(v.t("native.nextPage")).Disabled(v.pageCount <= 1 || !state.Preferences.LoopPages && v.page == v.pageCount-1).Children(func() { ui.Icon(c, rightIcon).Size(13, 13) }).OnClick(func() { v.changePage(v.page + 1) })
 		})
 		ui.Row(c).Absolute().Right(38).Bottom(34).Gap(10).Children(func() {
 			uikit.IconButton(c, "manage", v.t("native.manage"), settingsIcon).OnClick(func() {
@@ -633,16 +750,25 @@ func (v *Launchpad) View(c *ui.Context) {
 			if c.Preferences().HighContrast {
 				alpha = .85
 			}
-			ui.Text(c, v.t("native.categoryHint")).Absolute().Left(40).Bottom(47).FontSize(11).TextColor(ui.RGBA(255, 255, 255, alpha))
+			key := "native.categoryHint"
+			if !state.Preferences.TabCyclesCategories {
+				key = "native.categoryHintFocus"
+			}
+			ui.Text(c, v.t(key)).Absolute().Left(40).Bottom(47).FontSize(11).TextColor(ui.RGBA(255, 255, 255, alpha))
 		}
 		if errText != "" {
-			uikit.Surface(c, 16, uikit.Regular).Absolute().Bottom(88).Left(max(float32(30), (width-480)/2)).Width(min(float32(480), width-60)).Padding(12, 18).Gap(12).AlignItems(ui.Center).Children(func() {
+			uikit.Surface(c, 16, uikit.Regular).Absolute().Bottom(88).Left(max(float32(30), (width-480)/2)).Width(min(float32(480), width-60)).Padding(12, 18).Gap(12).AlignItems(ui.Center).OnClick(func() {}).Children(func() {
 				ui.Text(c, errText).Grow(1).FontSize(12).MaxLines(2)
 				if v.categorySaveFailed() {
 					ui.ButtonBase(c.Key("retry-category-save")).Padding(5, 9).Radius(7).Background(ui.RGBA(255, 255, 255, .1)).Label(v.t("native.error.retry")).Children(func() { ui.Text(c, v.t("native.error.retry")).FontSize(12) }).OnClick(v.retryCategorySave)
 				}
+				if v.pageSaveFailed() {
+					ui.ButtonBase(c.Key("retry-page-save")).Padding(5, 9).Radius(7).Background(ui.RGBA(255, 255, 255, .1)).Label(v.t("native.error.retry")).Children(func() { ui.Text(c, v.t("native.error.retry")).FontSize(12) }).OnClick(v.retryPageSave)
+				}
+				v.renderUndoButton(c)
 			})
 		}
+		v.renderActionFeedback(c, width, height)
 	})
 }
 
@@ -675,9 +801,11 @@ func (v *Launchpad) renderScene(c *ui.Context, frame sceneFrame, geometry gridLa
 				}
 				tile.Background(tile.AnimateColor("hover", background, ui.Animation{Duration: 140 * time.Millisecond})).AnimatePose(pose, ui.Animation{Duration: 160 * time.Millisecond, Ease: ui.EaseOut})
 				tile.OnClick(func() { v.launch(app) })
+				v.bindAppActions(tile, app)
 			}
 			tile.Children(func() {
-				if bitmap := v.bitmap(app.ID); bitmap != nil {
+				if v.renderFolderContents(c, app, size) {
+				} else if bitmap := v.bitmap(app.ID); bitmap != nil {
 					image := ui.Image(c, bitmap).Size(size, size).Fit(ui.Contain)
 					if !frame.target {
 						image.PassThrough().Role(ui.RoleNone)

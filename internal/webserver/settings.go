@@ -43,6 +43,9 @@ func (s *server) translations(w http.ResponseWriter, r *http.Request) {
 	if buildinfo.Channel != "release" {
 		shortcut = i18n.T(locale, "app.shortcut.dev")
 	}
+	if preferences.Shortcut != "" {
+		shortcut = preferences.Shortcut
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"locale": locale, "language": language, "messages": i18n.Messages(locale), "appName": buildinfo.Name(), "version": buildinfo.Version, "channel": buildinfo.Channel, "shortcut": shortcut})
 }
 

@@ -101,11 +101,12 @@ func describeApplications(paths []string) ([]App, error) {
 			}
 			bundleID := goString(message(bundle, "bundleIdentifier"))
 			version := goString(message(bundle, "objectForInfoDictionaryKey:", nsString("CFBundleShortVersionString")))
+			category := goString(message(bundle, "objectForInfoDictionaryKey:", nsString("LSApplicationCategoryType")))
 			kind := "application"
 			if strings.HasPrefix(path, "/System/") {
 				kind = "system"
 			}
-			apps = append(apps, App{ID: applicationID(path), Name: name, Path: path, BundleID: bundleID, Version: version, Kind: kind})
+			apps = append(apps, App{ID: applicationID(path), Name: name, Path: path, BundleID: bundleID, Version: version, Kind: kind, Category: category})
 		}
 	})
 	return apps, err

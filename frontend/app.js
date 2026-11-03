@@ -57,11 +57,12 @@ const settings = new GlassDialog($('#settings-dialog'));
 const categoriesDialog = new GlassDialog($('#categories-dialog'));
 const nameDialog = new GlassDialog($('#category-name-dialog'));
 const picker = new GlassDialog($('#picker-dialog'));
+const suggestionsDialog = new GlassDialog($('#category-suggestions-dialog'));
 const isNative = !!window.mygo;
-const BUILTINS = {all:'web.category.all',favorites:'web.category.favorites',system:'web.category.system',hidden:'web.category.hidden'};
+const BUILTINS = {all:'web.category.all',favorites:'web.category.favorites',system:'web.category.system',hidden:'web.category.hidden',recent:'category.recent'};
 const builtin = id => Object.prototype.hasOwnProperty.call(BUILTINS,id);
-const defaultCategories = () => Object.keys(BUILTINS).map(id => ({id,name:id,appIds:[],visible:id !== 'hidden'}));
-const defaults = () => ({hidden:[],order:[],favorites:[],iconSize:80,language:'system',showMenuBarIcon:false,lastCategory:'all',categories:defaultCategories()});
+const defaultCategories = () => Object.keys(BUILTINS).filter(id => id !== 'recent').map(id => ({id,name:id,appIds:[],visible:id !== 'hidden'}));
+const defaults = () => ({hidden:[],order:[],favorites:[],iconSize:80,language:'system',showMenuBarIcon:false,lastCategory:'all',searchScope:'all',searchRanking:'relevance',loopPages:false,rememberPage:true,dismissOnEmptyClick:true,escapeClearsSearch:true,rememberCategory:true,tabCyclesCategories:true,pageMemory:{},shortcut:'',launchAtLogin:false,showRecentApps:false,recent:[],showCategoryFolders:false,aliases:{},categories:defaultCategories()});
 const clone = value => typeof structuredClone === 'function' ? structuredClone(value) : JSON.parse(JSON.stringify(value));
 const unique = values => [...new Set((Array.isArray(values) ? values : []).filter(value => typeof value === 'string' && value))];
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
@@ -96,7 +97,7 @@ function normalizePreferences(raw = {}) {
   for (const item of raw.categories || []) {
     if (!item || typeof item.id !== 'string') continue;
     const id = item.id.trim(), isBuiltin = builtin(id);
-    if (!/^[A-Za-z0-9_-]{1,80}$/.test(id) || seen.has(id)) continue;
+    if (id === 'recent' || !/^[A-Za-z0-9_-]{1,80}$/.test(id) || seen.has(id)) continue;
     if (!isBuiltin && categories.filter(c => !builtin(c.id)).length >= 64) continue;
     const name = isBuiltin ? String(item.name || id) : Array.from(String(item.name || '').replace(/[\u0000-\u001f\u007f-\u009f]/g,'').trim()).slice(0,40).join('').trim();
     if (!name) continue;
@@ -105,22 +106,24 @@ function normalizePreferences(raw = {}) {
   }
   for (const item of defaultCategories()) if (!seen.has(item.id)) categories.push(item);
   if (!categories.some(item => item.visible)) categories.find(item => item.id === 'all').visible = true;
-  return {...raw,language:typeof raw.language === 'string' && raw.language ? raw.language : 'system',showMenuBarIcon:raw.showMenuBarIcon === true,lastCategory:typeof raw.lastCategory === 'string' ? raw.lastCategory : 'all',hidden:unique(raw.hidden),order:unique(raw.order),favorites:unique(raw.favorites),iconSize:Math.max(48,Math.min(112,Number(raw.iconSize)||80)),categories};
+  return {...defaults(),...raw,searchScope:raw.searchScope === 'current' ? 'current' : 'all',searchRanking:raw.searchRanking === 'manual' ? 'manual' : 'relevance',loopPages:raw.loopPages === true,rememberPage:raw.rememberPage !== false,dismissOnEmptyClick:raw.dismissOnEmptyClick !== false,escapeClearsSearch:raw.escapeClearsSearch !== false,rememberCategory:raw.rememberCategory !== false,tabCyclesCategories:raw.tabCyclesCategories !== false,launchAtLogin:raw.launchAtLogin === true,showRecentApps:raw.showRecentApps === true,showCategoryFolders:raw.showCategoryFolders === true,recent:unique(raw.recent).slice(0,24),shortcut:typeof raw.shortcut === 'string' ? raw.shortcut : '',pageMemory:raw.pageMemory && typeof raw.pageMemory === 'object' && !Array.isArray(raw.pageMemory) ? {...raw.pageMemory} : {},aliases:raw.aliases && typeof raw.aliases === 'object' && !Array.isArray(raw.aliases) ? {...raw.aliases} : {},language:typeof raw.language === 'string' && raw.language ? raw.language : 'system',showMenuBarIcon:raw.showMenuBarIcon === true,lastCategory:typeof raw.lastCategory === 'string' ? raw.lastCategory : 'all',hidden:unique(raw.hidden),order:unique(raw.order),favorites:unique(raw.favorites),iconSize:Math.max(48,Math.min(112,Number(raw.iconSize)||80)),categories};
 }
 let state = {apps:[],preferences:defaults()};
 let lastConfirmedPreferences = defaults();
 let currentView = 'all', temporaryView = null, sortMode = 'custom', query = '', selectedID = null;
+let searchScroll = null;
 let draggingID = null, draggedCategoryID = null, suppressClickUntil = 0;
 let toastTimer, toastState = null, translationRevision = 0, menuApp = null, lastAppFocus = null, loading = true, lastRefresh = Date.now(), closingManager = false;
 let editingCategoryID = null, pickerState = null, nameSession = 0, pickerSession = 0;
 const pendingSaves = [];
-let saving = false, saveFailures = 0, closePreparation = null;
+let saving = false, saveFailures = 0, closePreparation = null, preferenceRevision = 0, catalogRequest = 0;
 const appByID = id => state.apps.find(app => app.id === id);
-const categoryByID = id => state.preferences.categories.find(category => category.id === id);
+const recentCategory = () => ({id:'recent',name:t('category.recent'),appIds:[],visible:true});
+const categoryByID = id => id === 'recent' && state.preferences.showRecentApps ? recentCategory() : state.preferences.categories.find(category => category.id === id);
 const categoryName = category => category ? builtin(category.id) ? t(BUILTINS[category.id]) : category.name : '';
 const appCount = count => t(count === 1 ? 'web.appCountOne' : 'web.appCount',{count});
 const isSystem = app => app.kind === 'system' || app.path.startsWith('/System/');
-const visibleCategories = () => state.preferences.categories.filter(category => category.visible);
+const visibleCategories = () => [...state.preferences.categories.filter(category => category.visible),...(state.preferences.showRecentApps ? [recentCategory()] : [])];
 
 async function request(path, method = 'GET', body) {
   let response;
@@ -162,18 +165,19 @@ async function drainSaves() {
   saving = true;
   while (pendingSaves.length) {
     const entry = pendingSaves[0];
-    const snapshot = clone(lastConfirmedPreferences);
+    const baseline = clone(lastConfirmedPreferences), snapshot = clone(baseline);
     entry.change(snapshot);
     let ok = false;
-    const previousLanguage = lastConfirmedPreferences.language;
+    const previousLanguage = lastConfirmedPreferences.language, previousShortcut = lastConfirmedPreferences.shortcut;
     try {
-      const response = await request('preferences','PUT',normalizePreferences(snapshot));
+      const response = await request('preferences','PUT',{...normalizePreferences(snapshot),basePreferences:baseline});
       lastConfirmedPreferences = normalizePreferences(response.preferences || snapshot);
+      preferenceRevision++;
       ok = true;
     } catch (err) { saveFailures++; reportError(err,'web.saveError'); }
     pendingSaves.shift();
     replayPending();
-    if (ok && previousLanguage !== lastConfirmedPreferences.language && state.preferences.language === lastConfirmedPreferences.language) await refreshTranslations({report:true});
+    if (ok && ((previousLanguage !== lastConfirmedPreferences.language && state.preferences.language === lastConfirmedPreferences.language) || previousShortcut !== lastConfirmedPreferences.shortcut)) await refreshTranslations({report:true});
     entry.resolve(ok);
   }
   saving = false;
@@ -244,16 +248,38 @@ function orderedApps() {
 function categoryApps(category,ordered = true) {
   if (!category) return [];
   const hidden = new Set(state.preferences.hidden), favorite = new Set(state.preferences.favorites), members = new Set(category.appIds);
-  return (ordered ? orderedApps() : state.apps).filter(app => {
+  const source = category.id === 'recent' ? state.preferences.recent.map(appByID).filter(Boolean) : ordered ? orderedApps() : state.apps;
+  return source.filter(app => {
     if (category.id === 'hidden') return hidden.has(app.id);
     if (hidden.has(app.id)) return false;
+    if (category.id === 'recent') return true;
     if (category.id === 'favorites') return favorite.has(app.id);
     if (category.id === 'system') return isSystem(app);
     return category.id === 'all' || members.has(app.id);
   });
 }
+function nameSearchScore(text,term) {
+  const name = normalize(text), searchTerm = normalize(term);
+  if (!searchTerm) return 0;
+  if (name === searchTerm) return 500;
+  if (name.startsWith(searchTerm)) return 400;
+  if (name.includes(searchTerm)) return 300;
+  return matchesSearch(text,term) ? 200 : 0;
+}
+function appSearchScore(app,term) {
+  const score = nameSearchScore(app.name,term);
+  if (score) return score;
+  if (nameSearchScore(state.preferences.aliases[app.id],term)) return 200;
+  return matchesSearch(`${app.bundleId || ''} ${app.path}`,term) ? 100 : 0;
+}
+function searchingAll() { return !!query && currentView !== 'hidden' && state.preferences.searchScope === 'all'; }
 function visibleApps() {
-  return categoryApps(categoryByID(currentView)).filter(app => matchesSearch(`${app.name} ${app.bundleId || ''} ${app.path.split('/').pop()}`,query));
+  const apps = categoryApps(categoryByID(searchingAll() ? 'all' : currentView));
+  if (!query) return apps;
+  const scores = new Map(apps.map(app => [app.id,appSearchScore(app,query)]));
+  const matches = apps.filter(app => scores.get(app.id)>0);
+  if (state.preferences.searchRanking === 'relevance') matches.sort((a,b) => scores.get(b.id)-scores.get(a.id));
+  return matches;
 }
 function setSize(value, save = false) {
   const size = Math.max(48,Math.min(112,Number(value)||80));
@@ -287,22 +313,23 @@ function ensureCurrentCategory() {
 }
 function render() {
   ensureCurrentCategory();
-  const categories = state.preferences.categories.filter(item => item.visible || item.id === temporaryView);
+  const categories = [...visibleCategories(),...state.preferences.categories.filter(item => !item.visible && item.id === temporaryView)];
   const navigation = $('#navigation'), showTabs = visibleCategories().length > 1;
   const focusedNavigation = navigation.contains(document.activeElement);
   navigation.hidden = !showTabs;
   tabs.render(categories.map(category => ({...category,name:categoryName(category)})),currentView,item => categoryApps(item,false).length);
   if (!showTabs && focusedNavigation) search.focus({preventScroll:true});
   renderLanguageSelector();
+  renderLauncherSettings();
   $('#show-menu-bar-icon').setAttribute('aria-checked',String(state.preferences.showMenuBarIcon));
   const panel = $('#apps-scroll');
   panel.removeAttribute('data-i18n-aria-label');
-  if (showTabs) {
+  if (showTabs && !query) {
     panel.setAttribute('aria-labelledby',`category-tab-${currentView}`);
     panel.removeAttribute('aria-label');
   } else {
     panel.removeAttribute('aria-labelledby');
-    panel.setAttribute('aria-label',categoryName(categoryByID(currentView)));
+    panel.setAttribute('aria-label',query ? t(searchingAll() ? 'web.launcher.scopeAll' : 'web.launcher.scopeLabel',{name:categoryName(categoryByID(currentView))}) : categoryName(categoryByID(currentView)));
   }
   $('#category-shortcut').hidden = !showTabs;
   const editApps = $('#edit-category-apps');
@@ -311,6 +338,9 @@ function render() {
   const hiddenCount = state.apps.filter(app => state.preferences.hidden.includes(app.id)).length;
   $('#hidden-summary').textContent = hiddenCount;
   const apps = visibleApps();
+  const scopeLabel = $('#search-scope-label'); scopeLabel.hidden = !query;
+  if (query) localizedText(scopeLabel,searchingAll() ? 'web.launcher.scopeAll' : 'web.launcher.scopeLabel',{name:categoryName(categoryByID(currentView))});
+  const highlightedID = selectedID || (query ? apps[0]?.id : null);
   $('#collection-count').removeAttribute('data-i18n'); $('#collection-count').textContent = appCount(apps.length);
   const focusedID = document.activeElement?.closest('.app-tile')?.dataset.id;
   const existing = new Map([...grid.children].map(tile => [tile.dataset.id,tile]));
@@ -319,7 +349,7 @@ function render() {
     const revision = JSON.stringify([app.name,app.path,app.version,state.preferences.hidden.includes(app.id),state.preferences.favorites.includes(app.id),currentView === 'hidden',translationRevision]);
     let tile = existing.get(app.id);
     if (!tile || tile.dataset.revision !== revision) { tile = createTile(app); tile.dataset.revision = revision; }
-    tile.classList.toggle('keyboard-selected',app.id === selectedID);
+    tile.classList.toggle('keyboard-selected',app.id === highlightedID);
     return tile;
   });
   grid.replaceChildren(...tiles);
@@ -341,6 +371,7 @@ function render() {
   if (focusedID) [...grid.children].find(tile => tile.dataset.id === focusedID)?.focus({preventScroll:true});
   if (categoriesDialog.open) renderCategoryList();
   if (picker.open && pickerState) renderPicker();
+  if (suggestionsDialog.open) renderSuggestions();
   syncGridAlignment();
 }
 function syncGridAlignment() {
@@ -391,7 +422,7 @@ function reorder(source,target) {
 }
 function changeView(id,{temporary = false} = {}) {
   const category = categoryByID(id); if (!category || (!category.visible && !temporary)) return;
-  currentView = id; temporaryView = category.visible ? null : id; query = ''; search.value = ''; syncSearch(); selectedID = null; closeMenu(); $('#apps-scroll').scrollTop = 0; render();
+  currentView = id; temporaryView = category.visible ? null : id; searchScroll = null; query = ''; search.value = ''; syncSearch(); selectedID = null; closeMenu(); $('#apps-scroll').scrollTop = 0; render();
 }
 function cycleCategory(direction,focus = false) {
   const categories = visibleCategories(); if (categories.length<2) return false;
@@ -415,7 +446,7 @@ function openMenu(app,x,y) {
   const hidden = state.preferences.hidden.includes(app.id), favorite = state.preferences.favorites.includes(app.id);
   menu.innerHTML = `<div class="context-menu-header"><img src="/api/icon/${encodeURIComponent(app.id)}" alt=""><strong>${escapeHTML(app.name)}</strong></div>`+
     `<button role="menuitem" data-action="launch">${icon('launch')}${htmlText('web.menu.open')}<span class="menu-key">↵</span></button><button role="menuitem" data-action="favorite">${icon('star')}${htmlText(favorite ? 'web.menu.unfavorite' : 'web.menu.favorite')}</button><button role="menuitem" data-action="categories">${icon('folder')}${htmlText('web.menu.categories')}</button>`+
-    `${!builtin(currentView) ? `<button role="menuitem" data-action="remove-category">${icon('minus')}${htmlText('web.menu.removeCategory')}</button>` : ''}<div class="menu-divider" role="separator"></div><button role="menuitem" data-action="reveal">${icon('folder')}${htmlText('web.menu.reveal')}</button><button role="menuitem" data-action="copy">${icon('copy')}${htmlText('web.menu.copyPath')}</button><div class="menu-divider" role="separator"></div><button role="menuitem" class="danger" data-action="hide">${icon(hidden ? 'eye' : 'eye-off')}${htmlText(hidden ? 'web.menu.restore' : 'web.menu.hide')}</button>`;
+    `${!builtin(currentView) && categoryByID(currentView)?.appIds.includes(app.id) ? `<button role="menuitem" data-action="remove-category">${icon('minus')}${htmlText('web.menu.removeCategory')}</button>` : ''}<div class="menu-divider" role="separator"></div><button role="menuitem" data-action="reveal">${icon('folder')}${htmlText('web.menu.reveal')}</button><button role="menuitem" data-action="copy">${icon('copy')}${htmlText('web.menu.copyPath')}</button><div class="menu-divider" role="separator"></div><button role="menuitem" class="danger" data-action="hide">${icon(hidden ? 'eye' : 'eye-off')}${htmlText(hidden ? 'web.menu.restore' : 'web.menu.hide')}</button>`;
   menu.hidden = false; const rect = menu.getBoundingClientRect();
   menu.style.left = `${Math.max(8,Math.min(x,window.innerWidth-rect.width-8))}px`; menu.style.top = `${Math.max(8,Math.min(y,window.innerHeight-rect.height-8))}px`; menu.querySelector('button').focus({preventScroll:true});
 }
@@ -443,8 +474,16 @@ menu.onkeydown = event => {
 document.addEventListener('pointerdown',event => { if (!menu.hidden && !menu.contains(event.target) && !event.target.closest('.tile-menu')) closeMenu(); });
 window.addEventListener('resize',closeMenu); $('#apps-scroll').addEventListener('scroll',closeMenu,{passive:true});
 function syncSearch() { $('#clear-search').hidden = !search.value; }
-search.oninput = () => { query = search.value.trim(); selectedID = null; syncSearch(); $('#apps-scroll').scrollTop = 0; render(); };
-$('#clear-search').onclick = () => { query = ''; search.value = ''; syncSearch(); render(); search.focus(); };
+function updateSearch() {
+  const next = search.value.trim(), scroller = $('#apps-scroll');
+  if (!query && next) searchScroll = scroller.scrollTop;
+  const restoreScroll = !!query && !next;
+  query = next; selectedID = null; syncSearch(); render();
+  scroller.scrollTop = restoreScroll ? searchScroll || 0 : 0;
+  if (restoreScroll) searchScroll = null;
+}
+search.oninput = updateSearch;
+$('#clear-search').onclick = () => { search.value = ''; updateSearch(); search.focus(); };
 $('#empty-state').onclick = event => {
   const action = event.target.closest('[data-empty-action]')?.dataset.emptyAction;
   if (action === 'clear') $('#clear-search').click();
@@ -453,9 +492,19 @@ $('#empty-state').onclick = event => {
 };
 $('#sort').onchange = event => { sortMode = event.target.value; render(); };
 for (const selector of ['#icon-size','#settings-icon-size']) $(selector).oninput = event => setSize(event.target.value,true);
+function acceptRefreshedState(fresh,revision,generation) {
+  if (generation !== catalogRequest) return;
+  state.apps = fresh.apps;
+  // A refresh that overlaps a new local edit must not replace its save baseline.
+  if (revision === preferenceRevision && !pendingSaves.length && !saving && !closePreparation && fresh.preferences) {
+    lastConfirmedPreferences = normalizePreferences(fresh.preferences);
+    preferenceRevision++;
+  }
+  replayPending();
+}
 async function refresh() {
   const button = $('#refresh-button'); button.disabled = true; closeMenu();
-  try { if (!(await persist())) return; const fresh = await request('refresh','POST'); state.apps = fresh.apps; lastRefresh = Date.now(); render(); toast('web.toast.appsRefreshed'); }
+  try { if (!(await persist())) return; const revision = preferenceRevision, generation = ++catalogRequest; const fresh = await request('refresh','POST'); acceptRefreshedState(fresh,revision,generation); lastRefresh = Date.now(); toast('web.toast.appsRefreshed'); }
   catch (err) { reportError(err); } finally { button.disabled = false; }
 }
 $('#refresh-button').onclick = refresh;
@@ -512,6 +561,80 @@ $('#category-list').ondragleave = event => { const row = event.target.closest('[
 $('#category-list').ondrop = event => { const row = event.target.closest('[data-category-row]'); if (!row || !draggedCategoryID) return; event.preventDefault(); reorderCategory(draggedCategoryID,row.dataset.categoryRow); cleanupCategoryDrag(); };
 $('#category-list').ondragend = cleanupCategoryDrag;
 function cleanupCategoryDrag() { draggedCategoryID = null; $('#category-list').querySelectorAll('.dragging,.drop-target').forEach(row => row.classList.remove('dragging','drop-target')); }
+let suggestionsSession = 0;
+let categorySuggestions = {categories:[],selected:new Set(),loading:false,saving:false,error:null};
+function renderSuggestions() {
+  const {categories,selected,loading,saving,error} = categorySuggestions;
+  const status = $('#suggestions-status');
+  status.hidden = !loading && (!!categories.length || !!error);
+  if (!status.hidden) localizedText(status,loading ? 'web.loading' : 'web.suggestions.empty');
+  const list = $('#suggestions-list'), focusedSuggestion = document.activeElement?.dataset.suggestion;
+  list.setAttribute('aria-busy',String(loading));
+  list.innerHTML = categories.map(category => {
+    const names = category.appIds.map(appByID).filter(Boolean).slice(0,3).map(app => app.name).join(', ');
+    return `<label class="suggestion-option"><input type="checkbox" data-suggestion="${escapeHTML(category.id)}"${selected.has(category.id) ? ' checked' : ''}${saving ? ' disabled' : ''}/><span class="suggestion-text"><strong>${escapeHTML(category.name)}</strong><span>${escapeHTML(appCount(category.appIds.length))}</span><small>${escapeHTML(names)}</small></span></label>`;
+  }).join('');
+  if (focusedSuggestion) list.querySelector(`[data-suggestion="${focusedSuggestion}"]`)?.focus({preventScroll:true});
+  const remaining = 64-state.preferences.categories.filter(category => !builtin(category.id)).length;
+  const displayedError = error || (selected.size>remaining ? 'web.suggestions.limit' : null);
+  const errorElement = $('#suggestions-error');
+  errorElement.hidden = !displayedError;
+  if (displayedError) localizedText(errorElement,displayedError);
+  $('#retry-suggestions').hidden = error !== 'web.suggestions.loadError' || saving;
+  $('#retry-suggestions').disabled = loading;
+  $('#apply-suggestions').disabled = loading || saving || !selected.size || selected.size>remaining;
+  $('#apply-suggestions').setAttribute('aria-busy',String(saving));
+  localizedText($('#suggestions-count'),'web.selectionCount',{count:selected.size});
+}
+async function loadCategorySuggestions() {
+  const session = ++suggestionsSession;
+  categorySuggestions = {categories:[],selected:new Set(),loading:true,saving:false,error:null};
+  renderSuggestions();
+  try {
+    if (!(await persist())) throw new AppError('web.saveRetry');
+    const response = await request('category-suggestions');
+    if (session !== suggestionsSession) return;
+    const candidates = Array.isArray(response.categories) ? response.categories : [];
+    const knownApps = new Set(state.apps.map(app => app.id)), seen = new Set(state.preferences.categories.map(category => category.id));
+    const categories = candidates.filter(category => {
+      if (!category || typeof category.id !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(category.id) || builtin(category.id) || seen.has(category.id) || typeof category.name !== 'string' || !category.name.trim()) return false;
+      seen.add(category.id); return true;
+    }).map(category => ({id:category.id,name:[...category.name.trim()].slice(0,40).join(''),appIds:unique(category.appIds).filter(id => knownApps.has(id) && !state.preferences.hidden.includes(id)),visible:true})).filter(category => category.appIds.length>0);
+    const remaining = Math.max(0,64-state.preferences.categories.filter(category => !builtin(category.id)).length);
+    categorySuggestions = {categories,selected:new Set(categories.slice(0,remaining).map(category => category.id)),loading:false,saving:false,error:categories.length && !remaining ? 'web.suggestions.limit' : null};
+  } catch (err) {
+    if (session !== suggestionsSession) return;
+    categorySuggestions.loading = false; categorySuggestions.error = err.key === 'web.saveRetry' ? 'web.saveRetry' : 'web.suggestions.loadError';
+  }
+  renderSuggestions();
+}
+$('#suggest-categories').onclick = async () => { await categoriesDialog.close(); await suggestionsDialog.show(); loadCategorySuggestions(); };
+$('#retry-suggestions').onclick = loadCategorySuggestions;
+$('#suggestions-list').onchange = event => {
+  const id = event.target.dataset.suggestion;
+  if (!id || categorySuggestions.saving) return;
+  if (event.target.checked) categorySuggestions.selected.add(id); else categorySuggestions.selected.delete(id);
+  renderSuggestions();
+};
+$('#apply-suggestions').onclick = async () => {
+  if (categorySuggestions.saving || !categorySuggestions.selected.size) return;
+  const session = suggestionsSession;
+  const categories = categorySuggestions.categories.filter(category => categorySuggestions.selected.has(category.id)).map(clone);
+  const remaining = 64-state.preferences.categories.filter(category => !builtin(category.id)).length;
+  if (categories.length>remaining) { categorySuggestions.error = 'web.suggestions.limit'; renderSuggestions(); return; }
+  categorySuggestions.saving = true; categorySuggestions.error = null; renderSuggestions();
+  const ok = await updatePreferences(preferences => {
+    const known = new Set(preferences.categories.map(category => category.id));
+    const slots = 64-preferences.categories.filter(category => !builtin(category.id)).length;
+    preferences.categories.push(...categories.filter(category => !known.has(category.id)).slice(0,slots).map(clone));
+  });
+  if (session !== suggestionsSession) return;
+  categorySuggestions.saving = false;
+  if (!ok) { categorySuggestions.error = 'web.saveRetry'; renderSuggestions(); return; }
+  await suggestionsDialog.close();
+  toast('web.suggestions.applied',{count:categories.length});
+};
+
 function randomCategoryID() {
   if (crypto.randomUUID) return `custom-${crypto.randomUUID()}`;
   const bytes = crypto.getRandomValues(new Uint8Array(16)); bytes[6] = (bytes[6]&15)|64; bytes[8] = (bytes[8]&63)|128;
@@ -608,6 +731,51 @@ $('#show-menu-bar-icon').onclick = () => {
   const show = !state.preferences.showMenuBarIcon;
   updatePreferences(preferences => { preferences.showMenuBarIcon = show; });
 };
+const launcherSwitches = ['showRecentApps','showCategoryFolders','loopPages','rememberPage','dismissOnEmptyClick','escapeClearsSearch','rememberCategory','tabCyclesCategories','launchAtLogin'];
+function shortcutLabel(value) {
+  if (!value) return window.GopadI18n.metadata.shortcut || '';
+  return value.split('+').map(part => ({Ctrl:'⌃',Alt:'⌥',Shift:'⇧',Cmd:'⌘'}[part] || part)).join(' ');
+}
+function renderLauncherSettings() {
+  for (const field of launcherSwitches) document.querySelector(`[data-preference="${field}"]`).setAttribute('aria-checked',String(state.preferences[field]));
+  $('#search-scope').value = state.preferences.searchScope;
+  $('#search-ranking').value = state.preferences.searchRanking;
+  if (document.activeElement !== $('#custom-shortcut')) $('#custom-shortcut').value = state.preferences.shortcut;
+  $('#launchpad-shortcut').removeAttribute('data-i18n-meta');
+  $('#launchpad-shortcut').textContent = shortcutLabel(state.preferences.shortcut);
+}
+for (const field of launcherSwitches) document.querySelector(`[data-preference="${field}"]`).onclick = () => {
+  const value = !state.preferences[field];
+  updatePreferences(preferences => { preferences[field] = value; });
+};
+for (const [selector,field] of [['#search-scope','searchScope'],['#search-ranking','searchRanking']]) $(selector).onchange = event => {
+  const value = event.target.value;
+  updatePreferences(preferences => { preferences[field] = value; });
+};
+function normalizeShortcut(value) {
+  if (!value.trim()) return '';
+  const aliases = {control:'Ctrl',ctrl:'Ctrl',option:'Alt',alt:'Alt',shift:'Shift',command:'Cmd',cmd:'Cmd',meta:'Cmd',super:'Cmd',cmdorctrl:'Cmd'};
+  const parts = value.split('+').map(part => part.trim());
+  const key = parts.pop()?.toLowerCase(), modifiers = parts.map(part => aliases[part.toLowerCase()]);
+  if (!key || modifiers.some(part => !part) || new Set(modifiers).size !== modifiers.length) return null;
+  const functionKey = /^f(?:[1-9]|1[0-9]|20)$/.test(key);
+  const named = {space:'Space',return:'Enter',enter:'Enter',escape:'Escape',esc:'Escape',tab:'Tab',up:'Up',down:'Down',left:'Left',right:'Right',home:'Home',end:'End',pageup:'PageUp',pagedown:'PageDown',backspace:'Backspace',delete:'Delete'};
+  const normalizedKey = functionKey ? key.toUpperCase() : named[key] || (/^[a-z0-9,./;\[\]\-=]$/.test(key) ? key.toUpperCase() : null);
+  if (!normalizedKey || (!functionKey && !modifiers.some(part => ['Cmd','Ctrl','Alt'].includes(part)))) return null;
+  return [...['Cmd','Ctrl','Alt','Shift'].filter(part => modifiers.includes(part)),normalizedKey].join('+');
+}
+$('#shortcut-form').onsubmit = async event => {
+  event.preventDefault();
+  const shortcut = normalizeShortcut($('#custom-shortcut').value), error = $('#shortcut-error');
+  if (shortcut === null) { localizedText(error,'web.launcher.shortcutInvalid'); error.hidden = false; error.scrollIntoView?.({block:'center'}); return; }
+  error.hidden = true; $('#save-shortcut').disabled = true;
+  const ok = await updatePreferences(preferences => { preferences.shortcut = shortcut; });
+  $('#save-shortcut').disabled = false;
+  if (!ok) { localizedText(error,'web.launcher.shortcutUnavailable'); error.hidden = false; error.scrollIntoView?.({block:'center'}); }
+  else $('#custom-shortcut').value = state.preferences.shortcut;
+};
+$('#reset-shortcut').onclick = () => { $('#shortcut-error').hidden = true; updatePreferences(preferences => { preferences.shortcut = ''; }); };
+
 async function refreshTranslations({report = false} = {}) {
   try { await window.GopadI18n.load(); }
   catch (err) { console.warn(err); if (report) toast('web.language.loadError'); }
@@ -619,6 +787,7 @@ document.addEventListener('gopad:languagechange',() => {
   const menuPosition = {x:parseFloat(menu.style.left)||8,y:parseFloat(menu.style.top)||8};
   const menuAction = document.activeElement?.dataset.action;
   render(); renderNameLabels(); renderUpdateSettings();
+  if (suggestionsDialog.open) renderSuggestions();
   if (openApp) { openMenu(openApp,menuPosition.x,menuPosition.y); if (menuAction) menu.querySelector(`[data-action="${menuAction}"]`)?.focus({preventScroll:true}); }
   if (!$('#toast').hidden) renderToast();
 });
@@ -679,12 +848,12 @@ function moveSelection(key) {
 document.addEventListener('keydown',event => {
   if (event.defaultPrevented || isComposing(event)) return;
   const dialog = GlassDialog.top();
-  if (event.key === 'Escape') { event.preventDefault(); if (!menu.hidden) closeMenu(); else if (dialog) dialog.close(); else closeManager().catch(reportError); return; }
+  if (event.key === 'Escape') { event.preventDefault(); if (!menu.hidden) closeMenu(); else if (dialog) dialog.close(); else if (query && state.preferences.escapeClearsSearch) $('#clear-search').click(); else closeManager().catch(reportError); return; }
   if (dialog || !menu.hidden) return;
   if (event.key === 'Tab' && !event.metaKey && !event.altKey) {
     const target = event.target, tab = target.closest?.('[role="tab"]');
     const ordinaryControl = target.closest?.('input,textarea,select,button,a') && target !== search && !tab;
-    if (event.ctrlKey || !ordinaryControl) {
+    if (event.ctrlKey || (state.preferences.tabCyclesCategories && !ordinaryControl)) {
       if (cycleCategory(event.shiftKey ? -1 : 1,!!tab || target !== search)) event.preventDefault();
     }
     return;
@@ -706,7 +875,7 @@ async function initialize() {
   try {
     await window.GopadI18n.load();
     const initial = await request('state'); state.apps = initial.apps; lastConfirmedPreferences = normalizePreferences(initial.preferences);
-    if (lastConfirmedPreferences.categories.some(category => category.id === lastConfirmedPreferences.lastCategory && category.visible)) currentView = lastConfirmedPreferences.lastCategory;
+    if (lastConfirmedPreferences.rememberCategory && (lastConfirmedPreferences.lastCategory === 'recent' && lastConfirmedPreferences.showRecentApps || lastConfirmedPreferences.categories.some(category => category.id === lastConfirmedPreferences.lastCategory && category.visible))) currentView = lastConfirmedPreferences.lastCategory;
     loading = false; replayPending();
   } catch (err) {
     loading = false; grid.replaceChildren(); localizedText($('#collection-count'),'web.loadingFailed'); $('#empty-state').hidden = false;
@@ -717,6 +886,6 @@ window.addEventListener('focus',async () => {
   if (!loading) refreshTranslations();
   if (settings.open) loadUpdateSettings();
   if (loading || Date.now()-lastRefresh<30000) return; lastRefresh = Date.now();
-  try { if (!(await persist())) return; const fresh = await request('refresh','POST'); state.apps = fresh.apps; render(); } catch (err) { console.warn(err); }
+  try { if (!(await persist())) return; const revision = preferenceRevision, generation = ++catalogRequest; const fresh = await request('refresh','POST'); acceptRefreshedState(fresh,revision,generation); } catch (err) { console.warn(err); }
 });
 initialize();

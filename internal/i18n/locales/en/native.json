@@ -17,5 +17,21 @@
   "native.ui.category": "Category: {name}",
   "native.ui.categories": "App categories",
   "native.ui.previousCategory": "Previous category",
-  "native.ui.nextCategory": "Next category"
+  "native.ui.nextCategory": "Next category",
+  "native.menu.open": "Open",
+  "native.menu.favorite": "Add to favorites",
+  "native.menu.unfavorite": "Remove from favorites",
+  "native.menu.categories": "Categories",
+  "native.menu.reveal": "Show in Finder",
+  "native.menu.hide": "Hide app",
+  "native.menu.restore": "Restore app",
+  "native.hidden": "Hidden {name}",
+  "native.undo": "Undo",
+  "native.error.action": "Couldn't update app: {detail}",
+  "native.error.pageSave": "Could not remember this page: {detail}",
+  "native.searchScope.all": "Search all apps",
+  "native.searchScope.current": "Search this category",
+  "native.categoryHintFocus": "Ctrl+Tab switches categories",
+  "native.folder.back": "All apps",
+  "native.error.actionQueue": "Please wait for pending changes to finish, then try again."
 }

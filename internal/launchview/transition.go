@@ -193,6 +193,12 @@ func (d *slideDeck) dragBy(delta float32, now time.Time, page func(int) sceneReq
 	}
 	slot := d.to + float32(direction)
 	request := page(d.last.key.page + direction)
+	if request.key == d.last.key {
+		// At an edge, expose only the backdrop with resistance. Never draw a
+		// second copy of the current page or wrap without the user's setting.
+		d.from = d.to + (d.from-d.to)*.25
+		return
+	}
 	for _, layer := range d.layers {
 		if layer.slot == slot && sameScene(layer.request, request) {
 			return

@@ -23,5 +23,8 @@
   "error.updateUnavailable": "此构建无法使用自动更新。",
   "error.updateSave": "无法保存更新偏好。",
   "app.shortcut.release": "⌃ ⌥ Space",
-  "app.shortcut.dev": "⌃ ⌥ ⇧ Space"
+  "app.shortcut.dev": "⌃ ⌥ ⇧ Space",
+  "error.invalidShortcut": "请输入有效快捷键，例如 Ctrl+Alt+Space 或 F4。",
+  "error.shortcutUnavailable": "此快捷键无法注册，请尝试其他组合。",
+  "error.loginUnavailable": "无法更改登录启动设置，请检查系统设置中的登录项，并确认 gopad 已安装在应用程序目录。"
 }

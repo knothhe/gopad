@@ -104,6 +104,7 @@ func runDesktop(service *launcher.Service, frontend, assets fs.FS, windowed bool
 	var win, manager *mygo.Window
 	var pad *launchview.Launchpad
 	var fader *windowing.Fader
+	var nativeSettings *nativePreferences
 	var tray *mygo.Tray
 	var trayMenu *mygo.Menu
 	quitting := false
@@ -126,8 +127,13 @@ func runDesktop(service *launcher.Service, frontend, assets fs.FS, windowed bool
 		pad.ResetSearch()
 		pad.Reload()
 		if !windowed {
-			bounds := mygo.Screen.DisplayNearestPoint(mygo.Screen.CursorScreenPoint()).Bounds
-			windowing.PlaceOverlay(win, bounds)
+			display := mygo.Screen.DisplayNearestPoint(mygo.Screen.CursorScreenPoint())
+			windowing.PlaceOverlay(win, display.Bounds)
+			if wallpaper, err := launcher.WallpaperForDisplay(display.ID); err == nil {
+				_ = pad.SetWallpaper(wallpaper)
+			} else {
+				pad.ClearWallpaper()
+			}
 		}
 		fader.Show(mygo.Theme.Preferences().ReduceMotion)
 		win.Focus()
@@ -257,6 +263,12 @@ func runDesktop(service *launcher.Service, frontend, assets fs.FS, windowed bool
 		CopyPath:     func(path string) error { mygo.Clipboard.WriteText(path); return nil },
 		Quit:         func() { go func() { time.Sleep(100 * time.Millisecond); app.Quit() }() },
 		SystemLocale: func() string { return systemLocale.Load().(string) },
+		PreparePreferences: func(previous, next launcher.Preferences) (func(bool), error) {
+			if nativeSettings == nil {
+				return nil, fmt.Errorf("error.operation")
+			}
+			return nativeSettings.prepare(previous, next)
+		},
 		PreferencesChanged: func(launcher.Preferences) {
 			applyLanguage(service.Preferences().Language)
 			if win != nil {
@@ -376,21 +388,29 @@ func runDesktop(service *launcher.Service, frontend, assets fs.FS, windowed bool
 				tray = nil
 			}
 		})
-		shortcut := "Ctrl+Alt+Space"
-		if buildinfo.Channel != "release" {
-			shortcut = "Ctrl+Alt+Shift+Space"
-		}
+		shortcut := launchShortcut(service.Preferences().Shortcut)
+		nativeSettings = &nativePreferences{register: func(value string) error { return mygo.GlobalShortcut.Register(value, toggle) }, unregister: mygo.GlobalShortcut.Unregister, setLogin: app.SetOpenAtLogin, login: app.OpenAtLogin}
 		if err := mygo.GlobalShortcut.Register(shortcut, toggle); err != nil {
-			log.Printf("全局快捷键 Control+Option+Space 不可用: %v", err)
+			log.Printf("全局快捷键 %s 不可用: %v", shortcut, err)
+		} else {
+			nativeSettings.shortcut = shortcut
 		}
 		app.OnWillQuit(func(*mygo.QuitEvent) { mygo.GlobalShortcut.UnregisterAll(); fader.Stop(); pad.Close() })
 		mygo.Screen.OnDisplaysChanged(func() {
 			if !windowed && win.IsVisible() {
-				windowing.PlaceOverlay(win, mygo.Screen.DisplayNearestPoint(mygo.Screen.CursorScreenPoint()).Bounds)
+				display := mygo.Screen.DisplayNearestPoint(mygo.Screen.CursorScreenPoint())
+				windowing.PlaceOverlay(win, display.Bounds)
+				if wallpaper, err := launcher.WallpaperForDisplay(display.ID); err == nil {
+					_ = pad.SetWallpaper(wallpaper)
+				} else {
+					pad.ClearWallpaper()
+				}
 				win.Invalidate()
 			}
 		})
-		showMain()
+		if !app.WasOpenedAtLogin() {
+			showMain()
+		}
 	})
 	if err := app.Run(); err != nil {
 		log.Fatal(err)

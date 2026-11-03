@@ -112,7 +112,7 @@ func LayoutTabs(tabs []Tab, active string, maxWidth float32) TabLayout {
 
 // Tabs is a compact glass category strip. It does not handle Tab keys itself;
 // the launcher's search/grid scope owns category keyboard navigation.
-func Tabs(c *ui.Context, tabs []Tab, active string, maxWidth float32, onSelect func(string), labels TabsLabels) ui.Element {
+func Tabs(c *ui.Context, tabs []Tab, active string, maxWidth float32, onSelect func(string), labels TabsLabels, decorate ...func(ui.Element, string)) ui.Element {
 	layout := LayoutTabs(tabs, active, maxWidth)
 	activeIndex := 0
 	for i, tab := range tabs {
@@ -121,7 +121,7 @@ func Tabs(c *ui.Context, tabs []Tab, active string, maxWidth float32, onSelect f
 			break
 		}
 	}
-	return Surface(c, 11, Clear).Size(layout.Width, 35).Padding(3).Gap(3).AlignItems(ui.Center).Label(labels.Group).Children(func() {
+	return Surface(c, 11, Clear).Size(layout.Width, 35).Padding(3).Gap(3).AlignItems(ui.Center).Label(labels.Group).OnClick(func() {}).Children(func() {
 		if layout.Arrows {
 			ui.ButtonBase(c.Key("previous-category")).Size(28, 29).Center().Radius(8).Label(labels.Previous).Disabled(activeIndex == 0).Children(func() { ui.Icon(c, left).Size(12, 12) }).OnClick(func() {
 				if activeIndex > 0 {
@@ -152,6 +152,9 @@ func Tabs(c *ui.Context, tabs []Tab, active string, maxWidth float32, onSelect f
 				}
 				ui.Text(c, tab.Label).Width(layout.Widths[i-layout.Start] - 18).SingleLine().Ellipsis("…").TextAlign(ui.Center).FontSize(12).TextColor(ui.RGBA(255, 255, 255, alpha))
 			}).OnClick(func() { onSelect(tab.ID) })
+			for _, hook := range decorate {
+				hook(button, tab.ID)
+			}
 		}
 		if layout.Arrows {
 			ui.ButtonBase(c.Key("next-category")).Size(28, 29).Center().Radius(8).Label(labels.Next).Disabled(activeIndex == len(tabs)-1).Children(func() { ui.Icon(c, right).Size(12, 12) }).OnClick(func() {

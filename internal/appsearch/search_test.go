@@ -61,3 +61,22 @@ func TestReadingsIncludesOnlyUsedCharactersAndAllPronunciations(t *testing.T) {
 		t.Fatal("response dictionary changed the reading cache")
 	}
 }
+
+func TestScorePrefersNamesBeforePhoneticMatches(t *testing.T) {
+	for _, tc := range []struct {
+		text, query string
+		want        int
+	}{
+		{"Terminal", "Ｔｅｒｍｉｎａｌ", 500},
+		{"Terminal", "term", 400},
+		{"iTerm", "term", 300},
+		{"终端", "zd", 200},
+		{"终端", "zhongduan", 200},
+		{"Terminal", "missing", 0},
+		{"Terminal", "", 0},
+	} {
+		if got := Score(tc.text, tc.query); got != tc.want {
+			t.Errorf("Score(%q,%q)=%d, want %d", tc.text, tc.query, got, tc.want)
+		}
+	}
+}

@@ -17,5 +17,21 @@
   "native.ui.category": "分类：{name}",
   "native.ui.categories": "应用分类",
   "native.ui.previousCategory": "上一分类",
-  "native.ui.nextCategory": "下一分类"
+  "native.ui.nextCategory": "下一分类",
+  "native.menu.open": "打开",
+  "native.menu.favorite": "加入收藏",
+  "native.menu.unfavorite": "取消收藏",
+  "native.menu.categories": "添加到分区",
+  "native.menu.reveal": "在 Finder 中显示",
+  "native.menu.hide": "隐藏应用",
+  "native.menu.restore": "恢复显示",
+  "native.hidden": "已隐藏“{name}”",
+  "native.undo": "撤销",
+  "native.error.action": "无法更新应用：{detail}",
+  "native.error.pageSave": "无法记住当前页码：{detail}",
+  "native.searchScope.all": "搜索全部应用",
+  "native.searchScope.current": "搜索当前分区",
+  "native.categoryHintFocus": "⌃Tab 切换分区",
+  "native.folder.back": "全部应用",
+  "native.error.actionQueue": "请等待当前更改保存后再试。"
 }

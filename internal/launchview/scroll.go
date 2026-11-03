@@ -107,7 +107,12 @@ func abs(value float32) float32 { return float32(math.Abs(float64(value))) }
 
 func (v *Launchpad) pageRequest(page int) sceneRequest {
 	request := v.slides.last
-	request.key.page = (page%v.pageCount + v.pageCount) % v.pageCount
+	state, _, _ := v.snapshot()
+	if state.Preferences.LoopPages {
+		request.key.page = (page%v.pageCount + v.pageCount) % v.pageCount
+	} else {
+		request.key.page = max(0, min(page, v.pageCount-1))
+	}
 	start := request.key.page * v.pageSize
 	request.apps = v.filtered[start:min(len(v.filtered), start+v.pageSize)]
 	return request
@@ -138,8 +143,10 @@ func (v *Launchpad) finishPageScroll(now time.Time, cancelled bool) {
 	}
 	if direction != 0 {
 		request := v.pageRequest(v.page + direction)
-		v.changePage(v.page + direction)
-		d.sync(request, direction, now, false, false)
+		if request.key.page != v.page {
+			v.changePage(v.page + direction)
+			d.sync(request, direction, now, false, false)
+		}
 	}
 	d.dragging = false
 	d.started = now

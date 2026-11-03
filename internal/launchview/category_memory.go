@@ -28,9 +28,11 @@ func (v *Launchpad) saveCategories() {
 		select {
 		case <-v.stop:
 			v.flushCategory()
+			v.flushPages()
 			return
 		case <-v.saveWake:
 			v.flushCategory()
+			v.flushPages()
 		}
 	}
 }

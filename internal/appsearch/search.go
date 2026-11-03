@@ -107,3 +107,26 @@ func matchReadings(text, query string, initials bool) bool {
 	}
 	return false
 }
+
+// Score ranks literal application names above phonetic matches. Zero means no
+// match. Metadata callers should use a lower score than a name match, regardless
+// of whether a bundle identifier happens to match exactly.
+func Score(text, query string) int {
+	text, query = Normalize(text), Normalize(query)
+	if query == "" {
+		return 0
+	}
+	if text == query {
+		return 500
+	}
+	if strings.HasPrefix(text, query) {
+		return 400
+	}
+	if strings.Contains(text, query) {
+		return 300
+	}
+	if Match(text, query) {
+		return 200
+	}
+	return 0
+}
