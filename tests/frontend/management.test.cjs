@@ -181,12 +181,12 @@ test('multi-select membership, app picker, drag to a tab and removing one member
   const {w,$,control,event,checked,ids}=await fixture(t,{preferences:{categories}});
   assert.ok($('[data-view="work"]'),'valid server custom ID without custom- prefix survives');
   $('[aria-label="Gamma 的更多操作"]').click();$('#context-menu [data-action="categories"]').click();
-  checked('work',true);checked('custom-play',true);checked('custom-other',false);$('#save-picker').click();await tick();
+  checked('work',true);checked('custom-play',true);checked('custom-other',false);$('#save-picker').click();await waitFor(()=>!$('#picker-dialog').open,'successful picker save should finish closing');
   assert.deepEqual(control.preferences.categories.find(c=>c.id==='work').appIds,['alpha','gamma']);
   assert.deepEqual(control.preferences.categories.find(c=>c.id==='custom-play').appIds,['gamma']);
   $('[data-view="work"]').click();assert.deepEqual(ids(),['gamma','alpha']);
   $('[aria-label="Gamma 的更多操作"]').click();$('#context-menu [data-action="remove-category"]').click();await tick();assert.deepEqual(ids(),['alpha']);assert.deepEqual(control.preferences.categories.find(c=>c.id==='custom-play').appIds,['gamma']);
-  $('[data-view="custom-other"]').click();$('#empty-state [data-empty-action="add-apps"]').click();checked('beta',true);$('#save-picker').click();await tick();assert.deepEqual(ids(),['beta']);
+  $('[data-view="custom-other"]').click();$('#empty-state [data-empty-action="add-apps"]').click();checked('beta',true);$('#save-picker').click();await waitFor(()=>!$('#picker-dialog').open,'successful picker save should finish closing');assert.deepEqual(ids(),['beta']);
   $('[data-view="all"]').click();const dataTransfer={effectAllowed:'',dropEffect:'',setData(){}};
   $('[data-id="alpha"]').dispatchEvent(event('dragstart',{dataTransfer}));$('[data-view="custom-other"]').dispatchEvent(event('drop',{dataTransfer}));await tick();
   assert.deepEqual(control.preferences.categories.find(c=>c.id==='custom-other').appIds,['beta','alpha']);assert.deepEqual(control.preferences.categories.find(c=>c.id==='work').appIds,['alpha']);
@@ -195,12 +195,13 @@ test('multi-select membership, app picker, drag to a tab and removing one member
 
 test('persistent section editor preselects members and saves bulk additions and removals only in the current section',async t=>{
   const categories=[...builtins(),custom('work','Work',['alpha','delta']),custom('other','Other',['alpha','gamma'])];
-  const {$,control,checked,ids}=await fixture(t,{preferences:{language:'en',categories,favorites:['alpha']}});
+  const {w,$,control,checked,ids}=await fixture(t,{preferences:{language:'en',categories,favorites:['alpha']}});
+  w.matchMedia = () => ({matches:false});
   $('[data-view="work"]').click();assert.deepEqual(ids(),['alpha']);
   assert.equal($('#edit-category-apps').hidden,false);assert.equal($('#edit-category-apps').textContent.trim(),'Edit apps');
   $('#edit-category-apps').click();assert.equal($('#picker-dialog').open,true);assert.equal($('#picker-title').textContent,'Edit apps');assert.equal($('#picker-context').textContent,'Work');
   assert.equal($('#picker-list [data-option="alpha"]').checked,true);assert.equal($('#picker-list [data-option="delta"]').checked,true);assert.equal($('#picker-list [data-option="gamma"]').checked,false);
-  checked('alpha',false);checked('gamma',true);checked('beta',true);$('#save-picker').click();await tick();
+  checked('alpha',false);checked('gamma',true);checked('beta',true);$('#save-picker').click();await waitFor(()=>!$('#picker-dialog').open,'successful picker save should finish closing');
   assert.equal($('#picker-dialog').open,false);assert.deepEqual(control.preferences.categories.find(c=>c.id==='work').appIds,['delta','gamma','beta']);
   assert.deepEqual(control.preferences.categories.find(c=>c.id==='other').appIds,['alpha','gamma']);assert.deepEqual(control.preferences.favorites,['alpha']);assert.deepEqual(control.preferences.hidden,['delta']);
   assert.deepEqual(ids(),['gamma','beta']);assert.equal($('#edit-category-apps').hidden,false);
@@ -268,7 +269,7 @@ test('closing waits for edits added while an earlier save is pending',async t=>{
   input('#icon-size','96');$('#organize-button').click();input('#icon-size','112');
   first.resolve();await tick(30);
   assert.equal(control.saves.length,2);assert.equal(control.preferences.iconSize,96);assert.equal(control.closed,0);
-  second.resolve();await tick(30);
+  second.resolve();await waitFor(()=>control.closed===1,'manager should close after the final pending save');
   assert.equal(control.preferences.iconSize,112);assert.equal(control.closed,1);
 });
 
@@ -281,7 +282,7 @@ test('closing drains later edits and preserves a failure from any pending save',
     first.resolve();await tick(30);assert.equal(control.closed,0);assert.equal(control.saves.length,2);
     second.resolve();await tick(30);
     assert.equal(control.closed,0);assert.equal(control.preferences.iconSize,failing==='first'?112:96);assert.equal(control.errors.length,1);
-    $('#organize-button').click();await tick(30);assert.equal(control.closed,1);
+    $('#organize-button').click();await waitFor(()=>control.closed===1,'manager should finish closing');assert.equal(control.closed,1);
   });
 });
 
@@ -296,7 +297,7 @@ test('edits during the closing animation finish saving before the window closes'
     assert.equal(control.closed,fails?0:1);assert.equal(control.preferences.iconSize,fails?80:112);
     if(fails) {
       assert.equal(w.document.body.classList.contains('leaving'),false);
-      $('#organize-button').click();await tick(200);assert.equal(control.closed,1);
+      $('#organize-button').click();await waitFor(()=>control.closed===1,'animated manager close should finish');assert.equal(control.closed,1);
     }
   });
 });
