@@ -13,6 +13,13 @@ const apps = [
 const builtins = () => ['all','favorites','system','hidden'].map((id,index) => ({id,name:['全部','收藏','系统','隐藏'][index],appIds:[],visible:id !== 'hidden'}));
 const custom = (id,name,appIds=[],visible=true) => ({id,name,appIds,visible});
 const tick = (ms=12) => new Promise(resolve => setTimeout(resolve,ms));
+async function waitFor(predicate,message) {
+  const deadline = Date.now()+2000;
+  while (!predicate()) {
+    assert.ok(Date.now()<deadline,message);
+    await tick(5);
+  }
+}
 const deferred = () => { let resolve; const promise = new Promise(done => {resolve=done}); return {promise,resolve}; };
 async function fixture(t,options={}) {
   const dom = new JSDOM(fs.readFileSync(path.join(root,'frontend/index.html'),'utf8'),{url:'http://127.0.0.1:5192/',runScripts:'outside-only',pretendToBeVisual:true});
@@ -232,9 +239,15 @@ test('keyboard activation of the section editor dismisses the app menu and Escap
 test('picker keeps its draft and visible error after failure; retry saves it',async t=>{
   const {w,$,control,checked}=await fixture(t,{preferences:{categories:[...builtins(),custom('work','工作')]}});
   $('[aria-label="Gamma 的更多操作"]').click();$('#context-menu [data-action="categories"]').click();checked('work',true);
-  control.plans.push(()=>({status:500}));$('#save-picker').click();await tick();
+  control.plans.push(()=>({status:500}));$('#save-picker').click();
+  await waitFor(()=>!$('#picker-error').hidden && !$('#save-picker').disabled,'failed save should restore the draft for retry');
   assert.equal($('#picker-dialog').open,true);assert.equal($('#picker-error').hidden,false);assert.equal($('#picker-list [data-option="work"]').checked,true);assert.deepEqual(control.preferences.categories.find(c=>c.id==='work').appIds,[]);
-  $('#save-picker').click();await tick();assert.equal($('#picker-dialog').open,false);assert.deepEqual(control.preferences.categories.find(c=>c.id==='work').appIds,['gamma']);
+  // Exercise the animated close as well: completion must not depend on a
+  // particular event-loop speed or a fixed sleep shorter than the animation.
+  w.matchMedia = () => ({matches:false});
+  $('#save-picker').click();
+  await waitFor(()=>!$('#picker-dialog').open,'successful retry should close the picker');
+  assert.deepEqual(control.preferences.categories.find(c=>c.id==='work').appIds,['gamma']);
 });
 
 test('failed queued edits roll back to the last confirmation, while a later success is rebased',async t=>{
