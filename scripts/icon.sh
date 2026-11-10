@@ -16,8 +16,12 @@ swift "$PROJECT_DIR/scripts/render-icon.swift" \
   "$PROJECT_DIR/assets/gopad.svg" "$PROJECT_DIR/assets/gopad.png"
 
 for SIZE in 16 32 128 256 512; do
-  sips -z "$SIZE" "$SIZE" "$PROJECT_DIR/assets/gopad.png" \
-    --out "$ICONSET/icon_${SIZE}x${SIZE}.png" >/dev/null
+  # macOS 27 puts standard-resolution 16/32px ICNS artwork on a grey
+  # legacy plate. Let IconServices downsample the Retina PNGs instead.
+  if [[ "$SIZE" -ge 128 ]]; then
+    sips -z "$SIZE" "$SIZE" "$PROJECT_DIR/assets/gopad.png" \
+      --out "$ICONSET/icon_${SIZE}x${SIZE}.png" >/dev/null
+  fi
   DOUBLE=$((SIZE * 2))
   sips -z "$DOUBLE" "$DOUBLE" "$PROJECT_DIR/assets/gopad.png" \
     --out "$ICONSET/icon_${SIZE}x${SIZE}@2x.png" >/dev/null
